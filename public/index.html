@@ -3,86 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f5ba18">
-  <title>Worker Relay</title>
+  <meta name="theme-color" content="#070d14">
+  <meta name="description" content="Private BNB AI worker network for routing jobs to trusted computers and VPS nodes.">
+  <title>BNB AI NETWORK</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="noise"></div>
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="Worker Relay home">
-      <span class="brand-mark">WR</span>
-      <span>WORKER RELAY</span>
-    </a>
-    <div class="network-pill"><span class="pulse"></span> MANAGED BETA</div>
-  </header>
-
-  <main>
-    <section class="hero">
-      <div>
-        <p class="eyebrow">FRIEND-OPERATED AI COMPUTE</p>
-        <h1>Send a task.<br><span>Let the network work.</span></h1>
-        <p class="hero-copy">A private job relay connecting your requests to approved AI workers running on trusted computers and VPS machines.</p>
-      </div>
-      <div class="flow" aria-label="Job flow diagram">
-        <div><small>01</small><strong>REQUEST</strong></div><i>→</i>
-        <div><small>02</small><strong>LEASE</strong></div><i>→</i>
-        <div><small>03</small><strong>RESULT</strong></div>
-      </div>
-    </section>
-
-    <section id="access-panel" class="access-card">
-      <div>
-        <p class="section-kicker">PRIVATE ACCESS</p>
-        <h2>Enter your beta key</h2>
-        <p>Your key stays in this browser tab and is never embedded in the website.</p>
-      </div>
-      <form id="access-form">
-        <label for="access-key">Access key</label>
-        <div class="input-row">
-          <input id="access-key" name="accessKey" type="password" autocomplete="current-password" required placeholder="Paste your private key">
-          <button type="submit">OPEN INBOX</button>
-        </div>
-        <p id="access-error" class="error" role="alert"></p>
-      </form>
-    </section>
-
-    <section id="workspace" class="workspace" hidden>
-      <aside class="composer">
-        <div class="section-heading">
-          <p class="section-kicker">NEW REQUEST</p>
-          <button id="sign-out" class="text-button" type="button">LOCK</button>
-        </div>
-        <h2>What should the network do?</h2>
-        <form id="job-form">
-          <label for="service-id">AI service</label>
-          <select id="service-id" name="serviceId" required aria-describedby="service-note">
-            <option value="text.ollama">Ollama / local model</option>
-          </select>
-          <p id="service-note" class="service-note">Hosted services use credentials and credits configured by the worker owner. Requesters are not charged in this beta.</p>
-          <label for="prompt">Task instructions</label>
-          <textarea id="prompt" name="prompt" maxlength="8000" required placeholder="Summarize an idea, create an image, write dialogue, or generate a video concept..."></textarea>
-          <div class="composer-meta"><span>MULTI-MODEL · PRIVATE BETA</span><span id="prompt-count">0 / 8000</span></div>
-          <button id="submit-job" class="primary-button" type="submit">SEND TO NETWORK <span>↗</span></button>
-          <p id="job-error" class="error" role="alert"></p>
-        </form>
-        <div class="privacy-note"><strong>Privacy boundary</strong><p>The assigned worker can read the task. Do not submit secrets or regulated data.</p></div>
-      </aside>
-
-      <section class="inbox">
-        <div class="section-heading inbox-heading">
-          <div><p class="section-kicker">YOUR INBOX</p><h2>Requests & results</h2></div>
-          <button id="refresh" class="refresh-button" type="button" aria-label="Refresh jobs">REFRESH</button>
-        </div>
-        <div id="jobs-list" class="jobs-list" aria-live="polite"></div>
-        <div id="empty-state" class="empty-state">
-          <span>+</span><h3>No requests yet</h3><p>Your first task will appear here and move from queued to completed.</p>
-        </div>
+  <section id="landing-view" class="landing-view">
+    <header class="landing-header">
+      <a class="brand" href="/" aria-label="BNB AI Network home"><span class="brand-mark" aria-hidden="true">◆</span><span>BNB AI</span></a>
+      <nav class="landing-nav" aria-label="Public navigation"><a href="#how-it-works">How it works</a><a href="https://github.com/NachoLLMJS/worker-relay-node" target="_blank" rel="noopener noreferrer">Run a worker</a></nav>
+      <button id="open-access" class="yellow-button small-button" type="button">Open Network</button>
+    </header>
+    <main class="landing-main">
+      <section class="landing-hero">
+        <div class="hero-copy"><span class="eyebrow">PRIVATE AI COMPUTE · BNB ECOSYSTEM</span><h1>BNB AI<br><span>NETWORK</span></h1><p>Send AI tasks to trusted workers running on computers and VPS nodes. Track every job from request to result in one private control plane.</p><div class="hero-actions"><button id="hero-access" class="yellow-button" type="button">Enter private beta <span>→</span></button><a class="ghost-button" href="https://github.com/NachoLLMJS/worker-relay-node" target="_blank" rel="noopener noreferrer">Run a worker</a></div><div class="hero-features"><span>◉ Real AI workers</span><span>◎ Outbound HTTPS</span><span>◇ Multi-provider</span><span>∞ No requester fee</span></div></div>
+        <div class="hero-visual" aria-label="Illustration of a distributed AI worker network"><div class="visual-grid"></div><span class="node node-a">PC</span><span class="node node-b">VPS</span><span class="node node-c">GPU</span><div class="relay-core"><span class="relay-icon">◆</span><strong>AI RELAY</strong><small>JOBS ROUTED SECURELY</small></div><div class="terminal-card"><span>WORKER STATUS</span><strong><i></i> READY</strong><code>capabilities: 11</code></div></div>
       </section>
-    </section>
-  </main>
+      <section id="how-it-works" class="landing-strip"><article><span>01</span><strong>SUBMIT</strong><p>Choose an approved AI service and describe the task.</p></article><article><span>02</span><strong>ROUTE</strong><p>The control plane leases it to a compatible trusted worker.</p></article><article><span>03</span><strong>RESULT</strong><p>Text, image or video output returns to your private inbox.</p></article><article><span>04</span><strong>EXPAND</strong><p>Friends add capacity from a PC or VPS through the public worker repository.</p></article></section>
+    </main>
+    <div id="access-overlay" class="access-overlay" hidden><section id="access-panel" class="access-card" role="dialog" aria-modal="true" aria-labelledby="access-title"><button id="close-access" class="icon-button close-button" type="button" aria-label="Close access dialog">×</button><span class="access-symbol">◆</span><p class="eyebrow">INVITE ONLY</p><h2 id="access-title">Enter BNB AI Network</h2><p>Your access key remains in this browser tab. It is never stored permanently.</p><form id="access-form"><label for="access-key">Private access key</label><input id="access-key" name="accessKey" type="password" autocomplete="current-password" required placeholder="Paste your beta key"><button class="yellow-button" type="submit">Open dashboard <span>→</span></button><p id="access-error" class="form-error" role="alert"></p></form></section></div>
+  </section>
 
-  <footer><span>WORKER RELAY / CONTROL PLANE</span><span>NO TOKEN · NO PAYMENT · INVITE ONLY</span></footer>
+  <section id="app-shell" class="app-shell" hidden>
+    <header class="app-header"><a class="brand app-brand" href="/dashboard" data-route="dashboard" aria-label="BNB AI dashboard"><span class="brand-mark" aria-hidden="true">◆</span><span>BNB AI</span></a><button id="mobile-menu" class="icon-button mobile-menu" type="button" aria-label="Open navigation">☰</button><nav id="app-nav" class="app-nav" aria-label="Application navigation"><button type="button" data-route="dashboard">Dashboard</button><button type="button" data-route="jobs">Jobs</button><button type="button" data-route="workers">Workers</button><button type="button" data-route="submit">Submit</button><button type="button" data-route="inbox">Inbox</button><button type="button" data-route="logs">Logs</button></nav><div class="session-menu"><span class="session-dot"></span><span>Private beta</span><button id="sign-out" type="button">Lock</button></div></header>
+    <main class="app-main">
+      <section id="view-dashboard" class="app-view" data-view="dashboard"><div class="page-heading"><div><h1>Dashboard</h1><p>Overview of your AI jobs and network activity</p></div><button class="yellow-button route-action" data-route="submit" type="button">+ New Job</button></div><div class="stat-grid"><article class="stat-card"><span>Total Jobs</span><strong id="stat-total">0</strong><small>All private requests</small></article><article class="stat-card"><span>Completed</span><strong id="stat-completed">0</strong><small class="positive">Successful results</small></article><article class="stat-card"><span>Running</span><strong id="stat-running">0</strong><small class="blue-text">Currently leased</small></article><article class="stat-card"><span>Pending</span><strong id="stat-pending">0</strong><small class="yellow-text">Waiting for capability</small></article></div><div class="dashboard-grid"><section class="panel activity-panel"><div class="panel-heading"><div><h2>Job Activity</h2><p>Jobs created during the last 7 days</p></div><span>LIVE DATA</span></div><div id="activity-chart" class="activity-chart" aria-label="Seven day job activity chart"></div><div class="chart-legend"><span><i class="legend-complete"></i>Completed</span><span><i class="legend-running"></i>Running</span><span><i class="legend-pending"></i>Pending</span></div></section><section class="panel"><div class="panel-heading"><div><h2>Recent Jobs</h2><p>Your latest requests</p></div><button data-route="jobs" type="button">View all</button></div><div id="recent-jobs" class="recent-jobs"></div></section></div><section class="panel network-callout"><div><span class="callout-icon">◆</span><div><h2>Grow the worker network</h2><p>Friends can connect a PC or VPS without exposing inbound ports.</p></div></div><a href="https://github.com/NachoLLMJS/worker-relay-node" target="_blank" rel="noopener noreferrer">Open worker repository ↗</a></section></section>
+      <section id="view-jobs" class="app-view" data-view="jobs" hidden><div class="page-heading"><div><h1>Jobs</h1><p>Browse and manage every private AI request</p></div><button class="yellow-button route-action" data-route="submit" type="button">+ New Job</button></div><div id="job-filters" class="filter-row"><button class="active" data-filter="all" type="button">All</button><button data-filter="image" type="button">Image</button><button data-filter="text" type="button">Text</button><button data-filter="video" type="button">Video</button></div><section class="panel table-panel"><div class="jobs-table-wrap"><table class="jobs-table"><thead><tr><th>Job</th><th>Type</th><th>Description</th><th>Status</th><th>Created</th><th><span class="sr-only">Open</span></th></tr></thead><tbody id="jobs-table-body"></tbody></table></div><div id="jobs-empty" class="empty-state" hidden><span>◇</span><h3>No matching jobs</h3><p>Submit a new request or choose another filter.</p></div></section></section>
+      <section id="view-workers" class="app-view" data-view="workers" hidden><div class="page-heading"><div><h1>Workers</h1><p>Connect trusted computers and VPS nodes to the network</p></div><a class="yellow-button" href="https://github.com/NachoLLMJS/worker-relay-node" target="_blank" rel="noopener noreferrer">Install Worker ↗</a></div><div class="stat-grid worker-stats"><article class="stat-card"><span>Approved Services</span><strong id="worker-service-count">0</strong><small>Capability routes available</small></article><article class="stat-card"><span>Text Routes</span><strong id="worker-text-count">0</strong><small>Local and hosted models</small></article><article class="stat-card"><span>Image Routes</span><strong id="worker-image-count">0</strong><small>Opt-in generation</small></article><article class="stat-card"><span>Video Routes</span><strong id="worker-video-count">0</strong><small>Opt-in generation</small></article></div><div class="workers-layout"><section class="panel worker-map"><div class="panel-heading"><div><h2>Worker Network</h2><p>Outbound HTTPS connections only</p></div><span>PRIVATE BETA</span></div><div class="map-stage"><div class="world-grid"></div><span class="map-node n1"></span><span class="map-node n2"></span><span class="map-node n3"></span><span class="map-node n4"></span><span class="map-node n5"></span><div class="map-center">◆<small>RELAY</small></div></div></section><section class="panel setup-panel"><div class="panel-heading"><div><h2>Add a Worker</h2><p>No inbound ports or database access</p></div></div><ol class="setup-list"><li><span>1</span><div><strong>Clone the public repository</strong><p>Use the same verified runtime on Windows, Linux or a VPS.</p></div></li><li><span>2</span><div><strong>Configure approved capabilities</strong><p>Keys remain only on the worker machine.</p></div></li><li><span>3</span><div><strong>Start polling</strong><p>The node claims only jobs matching its explicit allowlist.</p></div></li></ol><div class="honesty-note"><strong>Worker telemetry is private by design</strong><p>This beta does not expose device locations, hardware details or a public worker roster.</p></div></section></div><section class="panel capability-panel"><div class="panel-heading"><div><h2>Approved Capability Catalog</h2><p>Workers opt in to exact services</p></div></div><div id="capability-list" class="capability-list"></div></section></section>
+      <section id="view-submit" class="app-view" data-view="submit" hidden><div class="page-heading"><div><h1>Submit a Job</h1><p>Describe the task you want an AI worker to complete</p></div></div><div class="submit-layout"><aside class="submit-steps"><div class="step active"><span>1</span><div><strong>Task Details</strong><p>Describe your request</p></div></div><div class="step"><span>2</span><div><strong>AI Service</strong><p>Choose a capability</p></div></div><div class="step"><span>3</span><div><strong>Network Route</strong><p>Submit securely</p></div></div></aside><section class="panel submit-panel"><div class="panel-heading"><div><h2>Task Details</h2><p>Prompts are visible to the assigned worker</p></div><span>MAX 8,000</span></div><form id="job-form"><label for="prompt">What do you need?</label><textarea id="prompt" name="prompt" maxlength="8000" required placeholder="Describe your task in detail…"></textarea><div class="field-meta"><span>Do not include secrets or regulated data</span><span id="prompt-count">0 / 8000</span></div><label for="service-id">AI service</label><select id="service-id" name="serviceId" required><option value="text.ollama">Ollama / local model</option></select><p id="service-note" class="service-note">Hosted services use credentials and credits configured by the worker owner. Requesters are not charged in this beta.</p><div class="submit-summary"><div><span>Delivery</span><strong>Private Inbox</strong></div><div><span>Routing</span><strong>Capability Match</strong></div><div><span>Payment</span><strong>None in Beta</strong></div></div><button id="submit-job" class="yellow-button submit-button" type="submit">Send to Network <span>→</span></button><p id="job-error" class="form-error" role="alert"></p></form></section></div></section>
+      <section id="view-inbox" class="app-view" data-view="inbox" hidden><div class="page-heading"><div><h1>Inbox</h1><p>Follow queued requests, active work and completed results</p></div><button id="refresh" class="outline-button" type="button">Refresh</button></div><div id="inbox-tabs" class="inbox-tabs"><button class="active" data-inbox-filter="open" type="button">Open <span id="inbox-open-count">0</span></button><button data-inbox-filter="active" type="button">In Progress <span id="inbox-active-count">0</span></button><button data-inbox-filter="completed" type="button">Completed <span id="inbox-completed-count">0</span></button></div><div id="inbox-list" class="inbox-list" aria-live="polite"></div><div id="inbox-empty" class="empty-state panel" hidden><span>◇</span><h3>Nothing in this view</h3><p>New and updated jobs will appear automatically.</p></div></section>
+      <section id="view-logs" class="app-view" data-view="logs" hidden><div class="page-heading"><div><h1>Logs</h1><p>A private timeline derived from your job history</p></div><button id="refresh-logs" class="outline-button" type="button">Refresh</button></div><section class="panel logs-panel"><div class="log-header"><span>TIME</span><span>EVENT</span><span>JOB</span><span>DETAIL</span></div><div id="logs-list" class="logs-list"></div></section><p class="honest-caption">This page shows requester-visible job events. Raw worker device logs and credentials are never exposed by the control plane.</p></section>
+      <section id="job-detail-view" class="app-view" data-view="job-detail" hidden><button id="back-to-jobs" class="back-button" type="button">← Back to Jobs</button><div class="page-heading detail-heading"><div><span id="detail-state"></span><h1 id="detail-title">Job</h1><p id="detail-subtitle"></p></div></div><div class="detail-layout"><aside class="panel detail-sidebar"><button class="active" type="button">⚙ Details</button><button type="button">▤ Prompt</button><button type="button">▣ Result</button></aside><section class="panel detail-panel"><div class="detail-facts"><div><span>Type</span><strong id="detail-type"></strong></div><div><span>Provider</span><strong id="detail-provider"></strong></div><div><span>Created</span><strong id="detail-created"></strong></div><div><span>Status</span><strong id="detail-status"></strong></div></div><div class="detail-block"><span>PROMPT</span><p id="detail-prompt"></p></div><div id="detail-result-block" class="detail-block"><span>RESULT</span><div id="detail-result"></div></div><div id="detail-waiting" class="detail-waiting"><i></i><div><strong>Waiting for a compatible worker</strong><p>The page refreshes automatically while this job is open.</p></div></div></section></div></section>
+    </main>
+  </section>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

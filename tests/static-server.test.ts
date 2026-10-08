@@ -20,6 +20,6 @@ describe("static web registration", () => {
     await registerWeb(server, join(import.meta.dirname, "..", "public"));
     const response = await server.inject({ method: "GET", url: "/" });
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain("Worker Relay");
+    expect(response.body).toContain("BNB AI NETWORK");
   });
 });
