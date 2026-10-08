@@ -6,6 +6,7 @@ export interface Job {
   userId: string;
   idempotencyKey: string;
   prompt: string;
+  serviceId: string;
   state: JobState;
   output: string | null;
   currentAttemptId: string | null;
@@ -32,7 +33,7 @@ export interface ClaimedAttempt {
 export interface JobStore {
   createJob(job: Job): Promise<Job>;
   listJobs(userId: string): Promise<Job[]>;
-  claimNext(input: { workerId: string; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null>;
+  claimNext(input: { workerId: string; capabilities: string[]; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null>;
   getAttempt(attemptId: string): Promise<Attempt | null>;
   completeAttempt(input: { attemptId: string; output: string; completedAt: Date }): Promise<Job>;
 }

@@ -3,6 +3,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import { JobService } from "./job-service.js";
 import type { JobStore } from "./types.js";
+import { getService, listServices } from "./service-catalog.js";
 
 function tokenMatches(header: string | undefined, expected: string): boolean {
   if (!header?.startsWith("Bearer ") || !expected) return false;
@@ -31,14 +32,20 @@ export async function buildServer(options: {
 
   app.get("/health/live", async () => ({ ok: true }));
 
+  app.get("/api/services", { preHandler: userAuth }, async () => ({ services: listServices() }));
+
   app.post("/api/jobs", { preHandler: userAuth }, async (request, reply) => {
-    const parsed = z.object({ prompt: z.string().min(1).max(8_000) }).safeParse(request.body);
+    const parsed = z.object({
+      prompt: z.string().min(1).max(8_000),
+      serviceId: z.string().min(3).max(100).default("text.ollama")
+    }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request", details: parsed.error.issues });
+    if (!getService(parsed.data.serviceId)) return reply.code(400).send({ error: "unsupported_service" });
     const idempotencyKey = request.headers["idempotency-key"];
     if (typeof idempotencyKey !== "string" || idempotencyKey.length < 3 || idempotencyKey.length > 128) {
       return reply.code(400).send({ error: "invalid_idempotency_key" });
     }
-    const job = await service.createJob({ userId: "bootstrap-user", prompt: parsed.data.prompt, idempotencyKey });
+    const job = await service.createJob({ userId: "bootstrap-user", prompt: parsed.data.prompt, serviceId: parsed.data.serviceId, idempotencyKey });
     return reply.code(201).send(job);
   });
 
@@ -47,7 +54,9 @@ export async function buildServer(options: {
   app.post("/api/worker/claim", { preHandler: workerAuth }, async (request, reply) => {
     const workerId = request.headers["x-worker-id"];
     if (typeof workerId !== "string" || !/^[a-zA-Z0-9_-]{3,64}$/.test(workerId)) return reply.code(400).send({ error: "invalid_worker_id" });
-    const claimed = await service.claimNext(workerId);
+    const body = z.object({ capabilities: z.array(z.string().min(3).max(100)).min(1).max(32).default(["text.ollama"]) }).safeParse(request.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_capabilities" });
+    const claimed = await service.claimNext(workerId, body.data.capabilities);
     return claimed ? reply.send(claimed) : reply.code(204).send();
   });
 

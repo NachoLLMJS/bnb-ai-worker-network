@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Job, JobStore } from "./types.js";
+import { requireService } from "./service-catalog.js";
 
 function hashToken(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -17,15 +18,18 @@ export class JobService {
     this.now = options.now ?? (() => new Date());
   }
 
-  async createJob(input: { userId: string; prompt: string; idempotencyKey?: string }): Promise<Job> {
+  async createJob(input: { userId: string; prompt: string; serviceId?: string; idempotencyKey?: string }): Promise<Job> {
     const prompt = input.prompt.trim();
     if (!prompt || prompt.length > 8_000) throw new Error("prompt must contain 1 to 8000 characters");
+    const serviceId = input.serviceId ?? "text.ollama";
+    requireService(serviceId);
     const now = this.now();
     return this.store.createJob({
       id: randomUUID(),
       userId: input.userId,
       idempotencyKey: input.idempotencyKey ?? randomUUID(),
       prompt,
+      serviceId,
       state: "queued",
       output: null,
       currentAttemptId: null,
@@ -38,11 +42,21 @@ export class JobService {
     return this.store.listJobs(userId);
   }
 
-  async claimNext(workerId: string) {
+  async claimNext(workerId: string, capabilities: string[] = ["text.ollama"]) {
+    const approvedCapabilities = [...new Set(capabilities)].filter((capability) => {
+      try {
+        requireService(capability);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (approvedCapabilities.length === 0) return null;
     const now = this.now();
     const leaseToken = randomBytes(32).toString("base64url");
     const claimed = await this.store.claimNext({
       workerId,
+      capabilities: approvedCapabilities,
       attemptId: randomUUID(),
       leaseTokenHash: hashToken(leaseToken),
       leaseExpiresAt: new Date(now.getTime() + this.options.leaseSeconds * 1000),

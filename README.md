@@ -8,7 +8,7 @@ Invite-only MVP for routing AI text jobs from a Railway-hosted coordinator to ap
 - PostgreSQL-backed job queue on Railway.
 - Atomic leases with expiry and stale-result rejection.
 - Friend-operated outbound-only worker agent.
-- Ollama adapter with a fixed operator-selected model.
+- Capability-aware workers for Ollama, OpenAI ChatGPT/Sol, Anthropic Fable, and approved Higgsfield image/video services.
 - No token, payment, NFT, wallet, arbitrary user code, or public worker enrollment.
 
 ## Architecture
@@ -38,31 +38,15 @@ npm start
 
 Open `http://localhost:3000` and enter the user access token.
 
-## Local worker
+## Friend-operated workers
 
-Install and start Ollama, pull an approved model, then configure:
+The installable worker and all PC/VPS/AI-agent manuals live in a separate public repository:
 
 ```text
-COORDINATOR_URL=https://your-service.up.railway.app
-WORKER_ACCESS_TOKEN=...
-WORKER_NAME=friend-worker-1
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=llama3.2
+https://github.com/NachoLLMJS/worker-relay-node
 ```
 
-Run one job:
-
-```bash
-npm run worker -- --once
-```
-
-Run continuously:
-
-```bash
-npm run worker
-```
-
-See `docs/WORKER_SETUP.md` for Windows and VPS instructions.
+Provider credentials remain on the worker machine. Workers advertise an explicit capability allowlist, and the coordinator leases a job only to a worker that enabled the requested service.
 
 ## Verification
 

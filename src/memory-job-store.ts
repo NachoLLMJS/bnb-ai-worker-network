@@ -21,9 +21,9 @@ export class MemoryJobStore implements JobStore {
       .map((job) => structuredClone(job));
   }
 
-  async claimNext(input: { workerId: string; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
+  async claimNext(input: { workerId: string; capabilities: string[]; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
     const job = [...this.jobs.values()]
-      .filter((candidate) => candidate.state === "queued")
+      .filter((candidate) => candidate.state === "queued" && input.capabilities.includes(candidate.serviceId))
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
     if (!job) return null;
 

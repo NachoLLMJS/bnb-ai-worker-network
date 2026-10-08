@@ -50,4 +50,44 @@ describe("HTTP API", () => {
     });
     expect(list.json().jobs[0].output).toBe("Hello from the worker");
   });
+
+  it("publishes the service catalog and routes jobs only to matching workers", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(),
+      userToken: "user-secret",
+      adminToken: "admin-secret",
+      workerToken: "worker-secret",
+      leaseSeconds: 60
+    });
+    servers.push(server);
+
+    const catalog = await server.inject({ method: "GET", url: "/api/services", headers: { authorization: "Bearer user-secret" } });
+    expect(catalog.statusCode).toBe(200);
+    expect(catalog.json().services.map((service: { id: string }) => service.id)).toContain("text.openai.sol");
+
+    const created = await server.inject({
+      method: "POST",
+      url: "/api/jobs",
+      headers: { authorization: "Bearer user-secret", "idempotency-key": "fable-job" },
+      payload: { prompt: "Write dialogue", serviceId: "text.anthropic.fable" }
+    });
+    expect(created.json()).toMatchObject({ serviceId: "text.anthropic.fable" });
+
+    const wrongWorker = await server.inject({
+      method: "POST",
+      url: "/api/worker/claim",
+      headers: { authorization: "Bearer worker-secret", "x-worker-id": "ollama-worker" },
+      payload: { capabilities: ["text.ollama"] }
+    });
+    expect(wrongWorker.statusCode).toBe(204);
+
+    const fableWorker = await server.inject({
+      method: "POST",
+      url: "/api/worker/claim",
+      headers: { authorization: "Bearer worker-secret", "x-worker-id": "fable-worker" },
+      payload: { capabilities: ["text.anthropic.fable"] }
+    });
+    expect(fableWorker.statusCode).toBe(200);
+    expect(fableWorker.json().job.serviceId).toBe("text.anthropic.fable");
+  });
 });

@@ -7,6 +7,7 @@ function jobFromRow(row: QueryResultRow): Job {
     userId: row.user_id,
     idempotencyKey: row.idempotency_key,
     prompt: row.prompt,
+    serviceId: row.service_id,
     state: row.state,
     output: row.output,
     currentAttemptId: row.current_attempt_id,
@@ -38,6 +39,7 @@ export class PostgresJobStore implements JobStore {
         user_id text NOT NULL,
         idempotency_key text NOT NULL,
         prompt text NOT NULL,
+        service_id text NOT NULL DEFAULT 'text.ollama',
         state text NOT NULL CHECK (state IN ('queued','active','succeeded','failed','cancelled')),
         output text,
         current_attempt_id text,
@@ -46,6 +48,8 @@ export class PostgresJobStore implements JobStore {
         UNIQUE (user_id, idempotency_key)
       );
       CREATE INDEX IF NOT EXISTS jobs_queue_idx ON jobs (state, created_at);
+      ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_id text NOT NULL DEFAULT 'text.ollama';
+      CREATE INDEX IF NOT EXISTS jobs_service_queue_idx ON jobs (state, service_id, created_at);
       CREATE TABLE IF NOT EXISTS job_attempts (
         id text PRIMARY KEY,
         job_id text NOT NULL REFERENCES jobs(id),
@@ -62,11 +66,11 @@ export class PostgresJobStore implements JobStore {
 
   async createJob(job: Job): Promise<Job> {
     const inserted = await this.pool.query(
-      `INSERT INTO jobs (id,user_id,idempotency_key,prompt,state,output,current_attempt_id,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO jobs (id,user_id,idempotency_key,prompt,service_id,state,output,current_attempt_id,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (user_id,idempotency_key) DO NOTHING
        RETURNING *`,
-      [job.id, job.userId, job.idempotencyKey, job.prompt, job.state, job.output, job.currentAttemptId, job.createdAt, job.updatedAt]
+      [job.id, job.userId, job.idempotencyKey, job.prompt, job.serviceId, job.state, job.output, job.currentAttemptId, job.createdAt, job.updatedAt]
     );
     if (inserted.rows[0]) return jobFromRow(inserted.rows[0]);
     const existing = await this.pool.query("SELECT * FROM jobs WHERE user_id=$1 AND idempotency_key=$2", [job.userId, job.idempotencyKey]);
@@ -78,17 +82,22 @@ export class PostgresJobStore implements JobStore {
     return result.rows.map(jobFromRow);
   }
 
-  async claimNext(input: { workerId: string; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
+  async claimNext(input: { workerId: string; capabilities: string[]; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       await this.requeueExpired(client, input.now);
+      if (input.capabilities.length === 0) {
+        await client.query("COMMIT");
+        return null;
+      }
+      const capabilityPlaceholders = input.capabilities.map((_, index) => `$${index + 3}`).join(",");
       const claimed = await client.query(
         `UPDATE jobs SET state='active', current_attempt_id=$1, updated_at=$2
-         WHERE id=(SELECT id FROM jobs WHERE state='queued' ORDER BY created_at ASC LIMIT 1)
+         WHERE id=(SELECT id FROM jobs WHERE state='queued' AND service_id IN (${capabilityPlaceholders}) ORDER BY created_at ASC LIMIT 1)
            AND state='queued'
          RETURNING *`,
-        [input.attemptId, input.now]
+        [input.attemptId, input.now, ...input.capabilities]
       );
       if (!claimed.rows[0]) {
         await client.query("COMMIT");

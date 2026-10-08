@@ -55,9 +55,14 @@
         </div>
         <h2>What should the network do?</h2>
         <form id="job-form">
+          <label for="service-id">AI service</label>
+          <select id="service-id" name="serviceId" required aria-describedby="service-note">
+            <option value="text.ollama">Ollama / local model</option>
+          </select>
+          <p id="service-note" class="service-note">Hosted services use credentials and credits configured by the worker owner. Requesters are not charged in this beta.</p>
           <label for="prompt">Task instructions</label>
-          <textarea id="prompt" name="prompt" maxlength="8000" required placeholder="Summarize this idea, draft a response, analyze a document..."></textarea>
-          <div class="composer-meta"><span>TEXT · PRIVATE BETA</span><span id="prompt-count">0 / 8000</span></div>
+          <textarea id="prompt" name="prompt" maxlength="8000" required placeholder="Summarize an idea, create an image, write dialogue, or generate a video concept..."></textarea>
+          <div class="composer-meta"><span>MULTI-MODEL · PRIVATE BETA</span><span id="prompt-count">0 / 8000</span></div>
           <button id="submit-job" class="primary-button" type="submit">SEND TO NETWORK <span>↗</span></button>
           <p id="job-error" class="error" role="alert"></p>
         </form>

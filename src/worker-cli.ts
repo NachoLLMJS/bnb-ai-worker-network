@@ -1,4 +1,5 @@
-import { generateWithOllama } from "./ollama-adapter.js";
+import "dotenv/config";
+import { buildWorkerExecutor } from "./provider-registry.js";
 import { runWorkerOnce } from "./worker.js";
 
 const required = (name: string): string => {
@@ -10,8 +11,7 @@ const required = (name: string): string => {
 const apiUrl = required("COORDINATOR_URL");
 const workerToken = required("WORKER_ACCESS_TOKEN");
 const workerId = process.env.WORKER_NAME?.trim() || "friend-worker-1";
-const ollamaBaseUrl = process.env.OLLAMA_BASE_URL?.trim() || "http://127.0.0.1:11434";
-const ollamaModel = process.env.OLLAMA_MODEL?.trim() || "llama3.2";
+const provider = buildWorkerExecutor();
 const once = process.argv.includes("--once");
 
 async function cycle() {
@@ -19,7 +19,8 @@ async function cycle() {
     apiUrl,
     workerId,
     workerToken,
-    generate: (prompt) => generateWithOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel, prompt })
+    capabilities: provider.capabilities,
+    execute: provider.execute
   });
   console.log(JSON.stringify({ time: new Date().toISOString(), workerId, result }));
   return result;

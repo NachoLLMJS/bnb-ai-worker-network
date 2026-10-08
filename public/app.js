@@ -4,6 +4,7 @@ const accessKey = document.querySelector("#access-key");
 const accessError = document.querySelector("#access-error");
 const workspace = document.querySelector("#workspace");
 const jobForm = document.querySelector("#job-form");
+const serviceId = document.querySelector("#service-id");
 const prompt = document.querySelector("#prompt");
 const promptCount = document.querySelector("#prompt-count");
 const submitJob = document.querySelector("#submit-job");
@@ -14,6 +15,7 @@ const refresh = document.querySelector("#refresh");
 const signOut = document.querySelector("#sign-out");
 
 const TOKEN_KEY = "worker-relay-access";
+const servicesById = new Map();
 let poller;
 
 function token() { return sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -41,6 +43,50 @@ function badge(state) {
   return node;
 }
 
+function safeHttpsUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function mediaResult(job, service) {
+  const url = safeHttpsUrl(job.output);
+  if (!url || !service || !["image", "video"].includes(service.kind)) {
+    const result = document.createElement("pre");
+    result.className = "result-text";
+    setText(result, job.output);
+    return result;
+  }
+  const wrapper = document.createElement("div");
+  wrapper.className = "media-result";
+  if (service.kind === "image") {
+    const image = document.createElement("img");
+    image.src = url;
+    image.alt = `Generated image from ${service.label}`;
+    image.loading = "lazy";
+    image.referrerPolicy = "no-referrer";
+    wrapper.append(image);
+  } else {
+    const video = document.createElement("video");
+    video.src = url;
+    video.controls = true;
+    video.preload = "metadata";
+    video.playsInline = true;
+    video.referrerPolicy = "no-referrer";
+    wrapper.append(video);
+  }
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  setText(link, "OPEN GENERATED ASSET ↗");
+  wrapper.append(link);
+  return wrapper;
+}
+
 function jobCard(job, index) {
   const article = document.createElement("article");
   article.className = "job-card";
@@ -54,7 +100,11 @@ function jobCard(job, index) {
   const time = document.createElement("time");
   time.dateTime = job.createdAt;
   setText(time, formatDate(job.createdAt));
-  meta.append(badge(job.state), time);
+  const service = servicesById.get(job.serviceId);
+  const serviceBadge = document.createElement("span");
+  serviceBadge.className = "service-badge";
+  setText(serviceBadge, service?.label || job.serviceId || "Ollama / local model");
+  meta.append(serviceBadge, badge(job.state), time);
   top.append(number, meta);
 
   const requestLabel = document.createElement("p");
@@ -71,14 +121,11 @@ function jobCard(job, index) {
     const resultLabel = document.createElement("p");
     resultLabel.className = "card-label";
     setText(resultLabel, "RESULT");
-    const result = document.createElement("pre");
-    result.className = "result-text";
-    setText(result, job.output);
-    article.append(divider, resultLabel, result);
+    article.append(divider, resultLabel, mediaResult(job, service));
   } else {
     const waiting = document.createElement("div");
     waiting.className = "waiting";
-    setText(waiting, job.state === "active" ? "Worker is processing this request" : "Waiting for an available worker");
+    setText(waiting, job.state === "active" ? "Worker is processing this request" : "Waiting for a worker with this service enabled");
     article.append(waiting);
   }
   return article;
@@ -88,6 +135,36 @@ async function loadJobs() {
   const data = await api("/api/jobs");
   jobsList.replaceChildren(...data.jobs.map(jobCard));
   emptyState.hidden = data.jobs.length > 0;
+}
+
+async function loadServices() {
+  const data = await api("/api/services");
+  servicesById.clear();
+  const groups = new Map();
+  for (const service of data.services) {
+    servicesById.set(service.id, service);
+    if (!groups.has(service.kind)) groups.set(service.kind, []);
+    groups.get(service.kind).push(service);
+  }
+  const labels = { text: "TEXT & CHAT", image: "IMAGE", video: "VIDEO" };
+  const nodes = [];
+  for (const kind of ["text", "image", "video"]) {
+    const group = document.createElement("optgroup");
+    group.label = labels[kind];
+    for (const service of groups.get(kind) || []) {
+      const option = document.createElement("option");
+      option.value = service.id;
+      setText(option, `${service.label} · ${service.provider}`);
+      group.append(option);
+    }
+    nodes.push(group);
+  }
+  serviceId.replaceChildren(...nodes);
+}
+
+async function loadWorkspace() {
+  await loadServices();
+  await loadJobs();
 }
 
 function openWorkspace() {
@@ -109,7 +186,7 @@ accessForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   sessionStorage.setItem(TOKEN_KEY, accessKey.value.trim());
   try {
-    await loadJobs();
+    await loadWorkspace();
     setText(accessError, "");
     openWorkspace();
   } catch (error) {
@@ -126,7 +203,7 @@ jobForm.addEventListener("submit", async (event) => {
     await api("/api/jobs", {
       method: "POST",
       headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
-      body: JSON.stringify({ prompt: prompt.value })
+      body: JSON.stringify({ prompt: prompt.value, serviceId: serviceId.value })
     });
     prompt.value = "";
     setText(promptCount, "0 / 8000");
@@ -143,5 +220,5 @@ refresh.addEventListener("click", () => loadJobs().catch((error) => setText(jobE
 signOut.addEventListener("click", lockWorkspace);
 
 if (token()) {
-  loadJobs().then(openWorkspace).catch(lockWorkspace);
+  loadWorkspace().then(openWorkspace).catch(lockWorkspace);
 }
