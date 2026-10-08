@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5ba18">
+  <title>Worker Relay</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="noise"></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Worker Relay home">
+      <span class="brand-mark">WR</span>
+      <span>WORKER RELAY</span>
+    </a>
+    <div class="network-pill"><span class="pulse"></span> MANAGED BETA</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">FRIEND-OPERATED AI COMPUTE</p>
+        <h1>Send a task.<br><span>Let the network work.</span></h1>
+        <p class="hero-copy">A private job relay connecting your requests to approved AI workers running on trusted computers and VPS machines.</p>
+      </div>
+      <div class="flow" aria-label="Job flow diagram">
+        <div><small>01</small><strong>REQUEST</strong></div><i>→</i>
+        <div><small>02</small><strong>LEASE</strong></div><i>→</i>
+        <div><small>03</small><strong>RESULT</strong></div>
+      </div>
+    </section>
+
+    <section id="access-panel" class="access-card">
+      <div>
+        <p class="section-kicker">PRIVATE ACCESS</p>
+        <h2>Enter your beta key</h2>
+        <p>Your key stays in this browser tab and is never embedded in the website.</p>
+      </div>
+      <form id="access-form">
+        <label for="access-key">Access key</label>
+        <div class="input-row">
+          <input id="access-key" name="accessKey" type="password" autocomplete="current-password" required placeholder="Paste your private key">
+          <button type="submit">OPEN INBOX</button>
+        </div>
+        <p id="access-error" class="error" role="alert"></p>
+      </form>
+    </section>
+
+    <section id="workspace" class="workspace" hidden>
+      <aside class="composer">
+        <div class="section-heading">
+          <p class="section-kicker">NEW REQUEST</p>
+          <button id="sign-out" class="text-button" type="button">LOCK</button>
+        </div>
+        <h2>What should the network do?</h2>
+        <form id="job-form">
+          <label for="prompt">Task instructions</label>
+          <textarea id="prompt" name="prompt" maxlength="8000" required placeholder="Summarize this idea, draft a response, analyze a document..."></textarea>
+          <div class="composer-meta"><span>TEXT · PRIVATE BETA</span><span id="prompt-count">0 / 8000</span></div>
+          <button id="submit-job" class="primary-button" type="submit">SEND TO NETWORK <span>↗</span></button>
+          <p id="job-error" class="error" role="alert"></p>
+        </form>
+        <div class="privacy-note"><strong>Privacy boundary</strong><p>The assigned worker can read the task. Do not submit secrets or regulated data.</p></div>
+      </aside>
+
+      <section class="inbox">
+        <div class="section-heading inbox-heading">
+          <div><p class="section-kicker">YOUR INBOX</p><h2>Requests & results</h2></div>
+          <button id="refresh" class="refresh-button" type="button" aria-label="Refresh jobs">REFRESH</button>
+        </div>
+        <div id="jobs-list" class="jobs-list" aria-live="polite"></div>
+        <div id="empty-state" class="empty-state">
+          <span>+</span><h3>No requests yet</h3><p>Your first task will appear here and move from queued to completed.</p>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <footer><span>WORKER RELAY / CONTROL PLANE</span><span>NO TOKEN · NO PAYMENT · INVITE ONLY</span></footer>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
