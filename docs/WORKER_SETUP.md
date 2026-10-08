@@ -14,7 +14,7 @@
 2. Open a terminal in the Worker Relay project.
 3. Run `npm ci`.
 4. Start Ollama and pull the approved model, for example `ollama pull llama3.2`.
-5. Create a local `.env.worker` outside the repository or set the following environment variables in the terminal:
+5. Set the following environment variables in the terminal or through a dedicated Windows service account. The worker does not automatically load `.env` files:
 
 ```text
 COORDINATOR_URL=https://your-service.up.railway.app
@@ -25,7 +25,7 @@ OLLAMA_MODEL=llama3.2
 ```
 
 6. Test one cycle with `npm run worker -- --once`.
-7. For continuous operation, run `npm run worker` from a dedicated user account.
+7. For continuous operation, run `npm run worker` from the same dedicated account. If you use a launcher script, keep its environment file outside the repository and readable only by that account.
 
 ## Ubuntu VPS
 
