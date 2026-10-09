@@ -5,10 +5,28 @@ import { describe, expect, it } from "vitest";
 const root = join(import.meta.dirname, "..");
 
 describe("BNB AI Network web application", () => {
-  it("provides a gated landing page and every reference-led application route", async () => {
+  it("provides an open public explorer, global worker map, docs, and private workspace routes", async () => {
     const html = await readFile(join(root, "public", "index.html"), "utf8");
     expect(html).toContain("BNB AI NETWORK");
     expect(html).toContain('id="access-form"');
+    expect(html).toContain('/assets/bnb-ai-command-center.webp');
+    expect(html).toContain('/assets/world-map.svg');
+    expect(html).not.toContain('/assets/bnb-worker-reference.png');
+    expect(html).not.toContain('/assets/global-worker-map.png');
+    expect(html).toContain('id="public-job-detail"');
+    expect(html).toContain('id="public-job-artifact"');
+    expect(html).toContain('id="public-job-timeline"');
+    expect(html).toContain('id="docs-binance"');
+    expect(html).toContain('class="hero-artwork"');
+    expect(html).toContain('class="landing-benefits"');
+    expect(html).toContain('data-public-route="home"');
+    expect(html).toContain('data-public-route="explore"');
+    expect(html).toContain('data-public-route="network"');
+    expect(html).toContain('data-public-route="docs"');
+    expect(html).toContain('id="public-jobs-list"');
+    expect(html).toContain('id="public-worker-map"');
+    expect(html).toContain('id="public-docs"');
+    expect(html).toContain('id="publish-job"');
     expect(html).toContain('data-route="dashboard"');
     expect(html).toContain('data-route="jobs"');
     expect(html).toContain('data-route="workers"');
@@ -30,6 +48,9 @@ describe("BNB AI Network web application", () => {
     expect(css).toContain("[hidden]{display:none!important}");
     expect(css).toContain("@media(max-width:760px)");
     expect(css).toContain(".app-nav");
+    expect(css).toContain(".hero-artwork");
+    expect(css).toContain("background-image:url(\"/assets/bnb-ai-command-center.webp\")");
+    expect(css).toContain(".landing-benefits");
     expect(css).toContain(".stat-grid");
     expect(css).toContain(".jobs-table");
   });
@@ -45,6 +66,12 @@ describe("BNB AI Network web application", () => {
     expect(source).toContain("function openJobDetail(id, push = true)");
     expect(source).toContain("openJobDetail(selectedJobId, false)");
     expect(source).toContain("/api/jobs");
+    expect(source).toContain("/api/explorer/jobs");
+    expect(source).toContain("publicRoutes");
+    expect(source).toContain("renderPublicExplorer");
+    expect(source).toContain("openPublicJobDetail");
+    expect(source).toContain("/api/explorer/jobs/");
+    expect(source).toContain("isPublic");
     expect(source).toContain("/api/services");
     expect(source).toContain("serviceId");
     expect(source).toContain("document.createElement(\"img\")");

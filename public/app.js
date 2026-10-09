@@ -1,7 +1,12 @@
 const TOKEN_KEY = "worker-relay-access";
 const validRoutes = new Set(["dashboard", "jobs", "workers", "submit", "inbox", "logs"]);
+const publicRoutes = new Set(["home", "explore", "job-detail", "network", "docs"]);
+const publicPaths = { home: "/", explore: "/explore", network: "/network", docs: "/docs" };
 const servicesById = new Map();
 let jobs = [];
+let publicJobs = [];
+let currentPublicJobId = null;
+let publicFilter = "all";
 let currentRoute = "dashboard";
 let jobsFilter = "all";
 let inboxFilter = "open";
@@ -21,6 +26,7 @@ const jobForm = $("#job-form");
 const prompt = $("#prompt");
 const promptCount = $("#prompt-count");
 const serviceId = $("#service-id");
+const publishJob = $("#publish-job");
 const submitJob = $("#submit-job");
 const jobError = $("#job-error");
 
@@ -36,6 +42,12 @@ async function api(path, options = {}) {
     throw new Error(body.error || `Request failed (${response.status})`);
   }
   return response.status === 204 ? null : response.json();
+}
+
+async function publicApi(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`Public request failed (${response.status})`);
+  return response.json();
 }
 
 function formatDate(value) {
@@ -82,8 +94,15 @@ function safeHttpsUrl(value) {
   } catch { return null; }
 }
 
+function safeMediaUrl(value, kind) {
+  const https = safeHttpsUrl(value);
+  if (https) return https;
+  if (kind === "image" && /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=\r\n]+$/i.test(value || "")) return value;
+  return null;
+}
+
 function mediaResult(job, service) {
-  const url = safeHttpsUrl(job.output);
+  const url = safeMediaUrl(job.output, service.kind);
   if (!url || !["image", "video"].includes(service.kind)) {
     const result = document.createElement("pre");
     result.className = "result-text";
@@ -115,6 +134,192 @@ function mediaResult(job, service) {
   setText(link, "OPEN GENERATED ASSET ↗");
   wrapper.append(link);
   return wrapper;
+}
+
+function publicJobIdFromPath() {
+  const match = location.pathname.match(/^\/explore\/jobs\/([0-9a-f-]+)$/i);
+  return match ? match[1] : null;
+}
+
+function publicRouteFromPath() {
+  if (publicJobIdFromPath()) return "job-detail";
+  if (location.pathname === "/explore") return "explore";
+  if (location.pathname === "/network") return "network";
+  if (location.pathname === "/docs") return "docs";
+  return "home";
+}
+
+function publicJobMatches(job) {
+  if (publicFilter === "all") return true;
+  if (["active", "succeeded"].includes(publicFilter)) return job.state === publicFilter;
+  return serviceFor(job).kind === publicFilter;
+}
+
+function publicJobCard(job, compact = false) {
+  const service = serviceFor(job);
+  const card = document.createElement("article");
+  card.className = `public-job-card${compact ? " compact-card" : ""}`;
+  card.dataset.publicJobId = job.id;
+  card.tabIndex = 0;
+  card.setAttribute("role", "link");
+  card.setAttribute("aria-label", `Open public job ${shortId(job.id)}: ${titleFor(job)}`);
+  const icon = typeIcon(service);
+  const body = document.createElement("div"); body.className = "public-job-body";
+  const heading = document.createElement("div"); heading.className = "public-job-heading";
+  const title = document.createElement("h3"); setText(title, titleFor(job));
+  const meta = document.createElement("span"); setText(meta, `${service.label} · ${relativeTime(job.updatedAt || job.createdAt)}`);
+  heading.append(title, meta);
+  const result = document.createElement("div"); result.className = "public-job-result";
+  if (!compact && job.output) result.append(mediaResult(job, service));
+  else if (!compact) {
+    const waiting = document.createElement("p");
+    setText(waiting, job.state === "active" ? "A compatible worker is processing this job." : job.state === "succeeded" ? "Open this job to view the published result." : "Waiting for a compatible worker.");
+    result.append(waiting);
+  }
+  body.append(heading);
+  if (!compact) body.append(result);
+  const aside = document.createElement("div"); aside.className = "public-job-meta";
+  const id = document.createElement("code"); setText(id, shortId(job.id));
+  aside.append(stateBadge(job.state), id);
+  card.append(icon, body, aside);
+  return card;
+}
+
+function renderPublicExplorer() {
+  const visible = publicJobs.filter(publicJobMatches);
+  $("#public-jobs-list").replaceChildren(...visible.map((job) => publicJobCard(job)));
+  $("#public-jobs-empty").hidden = visible.length > 0;
+  setText($("#public-total"), publicJobs.length);
+  setText($("#public-running"), publicJobs.filter((job) => job.state === "active").length);
+  setText($("#public-completed"), publicJobs.filter((job) => job.state === "succeeded").length);
+  setText($("#public-services"), servicesById.size);
+  $("#home-public-jobs").replaceChildren(...publicJobs.slice(0, 4).map((job) => publicJobCard(job, true)));
+  if (!publicJobs.length) {
+    const empty = document.createElement("div"); empty.className = "public-home-empty";
+    const strong = document.createElement("strong"); const text = document.createElement("p");
+    setText(strong, "The public Explorer is ready"); setText(text, "Completed work will appear here when a requester explicitly publishes a job.");
+    empty.append(strong, text); $("#home-public-jobs").replaceChildren(empty);
+  }
+}
+
+function timelineItem(title, description, timestamp) {
+  const item = document.createElement("li");
+  const copy = document.createElement("div");
+  const heading = document.createElement("strong");
+  const text = document.createElement("p");
+  const time = document.createElement("time");
+  setText(heading, title); setText(text, description); setText(time, timestamp ? formatDate(timestamp) : "Pending");
+  copy.append(heading, text); item.append(copy, time);
+  return item;
+}
+
+async function openPublicJobDetail(jobId, push = true) {
+  if (!jobId) { showPublicRoute("explore", push); return; }
+  currentPublicJobId = jobId;
+  clearInterval(poller);
+  appShell.hidden = true; landingView.hidden = false; accessOverlay.hidden = true;
+  $$("[data-public-view]").forEach((view) => { view.hidden = view.dataset.publicView !== "job-detail"; });
+  $$("[data-public-route]").forEach((control) => control.classList.toggle("active", control.dataset.publicRoute === "explore"));
+  if (push && location.pathname !== `/explore/jobs/${jobId}`) history.pushState({ publicJobId: jobId }, "", `/explore/jobs/${jobId}`);
+  setText($("#public-detail-id"), shortId(jobId));
+  setText($("#public-detail-title"), "Loading published job…");
+  $("#public-detail-state").replaceChildren();
+  setText($("#public-detail-prompt"), "");
+  const loading = document.createElement("div"); loading.className = "artifact-empty"; setText(loading, "Loading published result…");
+  $("#public-job-artifact").replaceChildren(loading);
+  $("#public-job-timeline").replaceChildren();
+  window.scrollTo({ top: 0, behavior: "instant" });
+  try {
+    if (!servicesById.size) {
+      const catalog = await publicApi("/api/services");
+      catalog.services.forEach((service) => servicesById.set(service.id, service));
+    }
+    const detail = await publicApi(`/api/explorer/jobs/${jobId}`);
+    if (currentPublicJobId !== jobId) return;
+    const job = detail.job;
+    const service = serviceFor(job);
+    setText($("#public-detail-icon"), kindSymbol(service.kind));
+    setText($("#public-detail-service"), `${service.provider} · ${service.label}`);
+    setText($("#public-detail-id"), shortId(job.id));
+    setText($("#public-detail-title"), titleFor(job));
+    $("#public-detail-state").replaceChildren(stateBadge(job.state));
+    setText($("#public-detail-age"), relativeTime(job.updatedAt || job.createdAt));
+    setText($("#public-detail-prompt"), job.prompt);
+    setText($("#public-artifact-title"), service.kind === "text" ? "Published Response" : `Published ${service.kind.charAt(0).toUpperCase() + service.kind.slice(1)}`);
+    setText($("#public-artifact-meta"), `${service.provider} · ${service.id}`);
+    if (job.output) $("#public-job-artifact").replaceChildren(mediaResult(job, service));
+    else { const empty = document.createElement("div"); empty.className = "artifact-empty"; setText(empty, job.state === "active" ? "A compatible worker is producing this result." : "No result has been published yet."); $("#public-job-artifact").replaceChildren(empty); }
+    const work = detail.work || {};
+    const steps = [timelineItem("Job published", "The requester explicitly chose to make this prompt and result public.", job.createdAt)];
+    if (work.claimedAt) steps.push(timelineItem("Work accepted", "A compatible worker securely claimed the approved capability. Worker identity remains private.", work.claimedAt));
+    if (work.completedAt || job.state === "succeeded") steps.push(timelineItem("Result completed", "The published artifact passed lease validation and was accepted by the control plane.", work.completedAt || job.updatedAt));
+    if (!work.claimedAt && job.state !== "succeeded") steps.push(timelineItem("Awaiting compatible capacity", "The request remains available to workers advertising this capability.", null));
+    $("#public-job-timeline").replaceChildren(...steps);
+  } catch {
+    if (currentPublicJobId !== jobId) return;
+    const error = document.createElement("div"); error.className = "public-detail-error";
+    const strong = document.createElement("strong"); const text = document.createElement("p");
+    setText(strong, "Published job not found"); setText(text, "This job is private, unavailable, or no longer published.");
+    error.append(strong, text); $("#public-job-artifact").replaceChildren(error);
+    setText($("#public-detail-title"), "Unavailable public job");
+  }
+}
+
+function enhanceWorldMap() {
+  const map = $("#public-worker-map");
+  const label = $("#map-country-label");
+  if (!map || !label) return;
+  const bind = () => {
+    const documentRoot = map.contentDocument;
+    if (!documentRoot || documentRoot.documentElement.dataset.interactive === "true") return;
+    documentRoot.documentElement.dataset.interactive = "true";
+    documentRoot.querySelectorAll("path[data-country]").forEach((country) => {
+      country.style.cursor = "crosshair";
+      const activate = () => { country.style.fill = "#52697b"; country.style.stroke = "#f0b90b"; setText(label, `${country.dataset.country} · worker availability is open, live location not claimed`); };
+      const deactivate = () => { country.style.removeProperty("fill"); country.style.removeProperty("stroke"); };
+      country.addEventListener("pointerenter", activate);
+      country.addEventListener("pointerleave", deactivate);
+      country.addEventListener("click", activate);
+    });
+  };
+  map.addEventListener("load", bind);
+  bind();
+}
+
+function renderPublicCapabilities() {
+  const target = $("#public-capability-list");
+  if (!target) return;
+  target.replaceChildren(...[...servicesById.values()].map((service) => {
+    const card = document.createElement("article"); card.className = "capability-card";
+    const kind = document.createElement("span"); const name = document.createElement("strong"); const provider = document.createElement("small");
+    setText(kind, `${kindSymbol(service.kind)} ${service.kind}`); setText(name, service.label); setText(provider, `${service.provider} · worker opt-in`);
+    card.append(kind, name, provider); return card;
+  }));
+}
+
+function showPublicRoute(route = publicRouteFromPath(), push = true) {
+  if (route === "job-detail") { openPublicJobDetail(publicJobIdFromPath(), push); return; }
+  if (!publicRoutes.has(route)) route = "home";
+  currentPublicJobId = null;
+  clearInterval(poller);
+  appShell.hidden = true;
+  landingView.hidden = false;
+  accessOverlay.hidden = true;
+  $$("[data-public-view]").forEach((view) => { view.hidden = view.dataset.publicView !== route; });
+  $$("[data-public-route]").forEach((control) => control.classList.toggle("active", control.dataset.publicRoute === route));
+  if (push && location.pathname !== publicPaths[route]) history.pushState({ publicRoute: route }, "", publicPaths[route]);
+  if (route === "explore") renderPublicExplorer();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+async function loadPublicSite() {
+  const [catalog, explorer] = await Promise.all([publicApi("/api/services"), publicApi("/api/explorer/jobs?limit=100")]);
+  servicesById.clear();
+  catalog.services.forEach((service) => servicesById.set(service.id, service));
+  publicJobs = explorer.jobs;
+  renderPublicCapabilities();
+  renderPublicExplorer();
+  enhanceWorldMap();
 }
 
 function routeFromPath() {
@@ -308,7 +513,7 @@ function openApp(route = routeFromPath()) {
 }
 
 function lockApp() {
-  sessionStorage.removeItem(TOKEN_KEY); clearInterval(poller); appShell.hidden = true; landingView.hidden = false; accessOverlay.hidden = true; accessKey.value = ""; history.replaceState({}, "", "/");
+  sessionStorage.removeItem(TOKEN_KEY); clearInterval(poller); appShell.hidden = true; landingView.hidden = false; accessOverlay.hidden = true; accessKey.value = ""; history.replaceState({ publicRoute: "home" }, "", "/"); showPublicRoute("home", false);
 }
 
 function showAccess() { accessOverlay.hidden = false; requestAnimationFrame(() => accessKey.focus()); }
@@ -323,8 +528,8 @@ accessForm.addEventListener("submit", async (event) => {
 jobForm.addEventListener("submit", async (event) => {
   event.preventDefault(); submitJob.disabled = true; setText(jobError, "");
   try {
-    await api("/api/jobs", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ prompt: prompt.value, serviceId: serviceId.value }) });
-    prompt.value = ""; setText(promptCount, "0 / 8000"); await loadJobs(); navigate("inbox");
+    await api("/api/jobs", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ prompt: prompt.value, serviceId: serviceId.value, isPublic: publishJob.checked }) });
+    prompt.value = ""; publishJob.checked = false; setText(promptCount, "0 / 8000"); await loadJobs(); navigate("inbox");
   } catch (error) { setText(jobError, error.message); }
   finally { submitJob.disabled = false; }
 });
@@ -333,15 +538,31 @@ $("#open-access").addEventListener("click", showAccess);
 $("#hero-access").addEventListener("click", showAccess);
 $("#close-access").addEventListener("click", hideAccess);
 accessOverlay.addEventListener("click", (event) => { if (event.target === accessOverlay) hideAccess(); });
-document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !accessOverlay.hidden) hideAccess(); });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !accessOverlay.hidden) hideAccess();
+  const publicJobCardControl = event.target.closest?.("[data-public-job-id]");
+  if (publicJobCardControl && ["Enter", " "].includes(event.key)) { event.preventDefault(); openPublicJobDetail(publicJobCardControl.dataset.publicJobId); }
+});
 $("#sign-out").addEventListener("click", lockApp);
 $("#mobile-menu").addEventListener("click", () => appNav.classList.toggle("open"));
 prompt.addEventListener("input", () => setText(promptCount, `${prompt.value.length} / 8000`));
 $("#refresh").addEventListener("click", () => loadJobs().catch((error) => setText(jobError, error.message)));
 $("#refresh-logs").addEventListener("click", () => loadJobs().catch(() => {}));
 $("#back-to-jobs").addEventListener("click", () => navigate("jobs"));
+$("#public-job-back").addEventListener("click", () => showPublicRoute("explore"));
 
 document.addEventListener("click", (event) => {
+  const publicJobCardControl = event.target.closest("[data-public-job-id]");
+  if (publicJobCardControl && !event.target.closest("a,button")) { openPublicJobDetail(publicJobCardControl.dataset.publicJobId); return; }
+  const publicRouteControl = event.target.closest("[data-public-route]");
+  if (publicRouteControl && landingView.contains(publicRouteControl)) { event.preventDefault(); showPublicRoute(publicRouteControl.dataset.publicRoute); }
+  if (event.target.closest(".public-submit")) showAccess();
+  const publicFilterControl = event.target.closest("[data-public-filter]");
+  if (publicFilterControl) {
+    publicFilter = publicFilterControl.dataset.publicFilter;
+    $$("[data-public-filter]").forEach((button) => button.classList.toggle("active", button === publicFilterControl));
+    renderPublicExplorer();
+  }
   const routeControl = event.target.closest("[data-route]");
   if (routeControl && appShell.contains(routeControl)) { event.preventDefault(); navigate(routeControl.dataset.route); }
   const filter = event.target.closest("[data-filter]");
@@ -351,13 +572,31 @@ document.addEventListener("click", (event) => {
 });
 
 window.addEventListener("popstate", () => {
-  if (!token()) { lockApp(); return; }
+  if (["/", "/explore", "/network", "/docs"].includes(location.pathname)) { showPublicRoute(publicRouteFromPath(), false); return; }
+  const publicJobId = publicJobIdFromPath();
+  if (publicJobId) { openPublicJobDetail(publicJobId, false); return; }
+  if (!token()) { showPublicRoute("home", false); showAccess(); return; }
   const detailMatch = location.pathname.match(/^\/jobs\/([0-9a-f-]+)$/i);
-  if (detailMatch) openJobDetail(detailMatch[1], false); else navigate(routeFromPath(), false);
+  if (detailMatch) openJobDetail(detailMatch[1], false); else { appShell.hidden = false; landingView.hidden = true; navigate(routeFromPath(), false); }
 });
 
-if (token()) loadWorkspace().then(() => {
+loadPublicSite().catch(() => {
+  const empty = document.createElement("div"); empty.className = "public-home-empty";
+  setText(empty, "Public activity is temporarily unavailable.");
+  $("#home-public-jobs").replaceChildren(empty);
+});
+
+const initialPublicJobId = publicJobIdFromPath();
+if (initialPublicJobId) {
+  openPublicJobDetail(initialPublicJobId, false);
+} else if (["/", "/explore", "/network", "/docs"].includes(location.pathname)) {
+  showPublicRoute(publicRouteFromPath(), false);
+} else if (token()) loadWorkspace().then(() => {
   const detailMatch = location.pathname.match(/^\/jobs\/([0-9a-f-]+)$/i);
   openApp(detailMatch ? "jobs" : routeFromPath());
   if (detailMatch) openJobDetail(detailMatch[1], false);
 }).catch(lockApp);
+else {
+  showPublicRoute("home", false);
+  showAccess();
+}

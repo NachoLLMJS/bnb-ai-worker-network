@@ -21,6 +21,19 @@ export class MemoryJobStore implements JobStore {
       .map((job) => structuredClone(job));
   }
 
+  async listPublicJobs(limit: number): Promise<Job[]> {
+    return [...this.jobs.values()]
+      .filter((job) => job.isPublic)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit)
+      .map((job) => structuredClone(job));
+  }
+
+  async getPublicJob(jobId: string): Promise<Job | null> {
+    const job = this.jobs.get(jobId);
+    return job?.isPublic ? structuredClone(job) : null;
+  }
+
   async claimNext(input: { workerId: string; capabilities: string[]; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
     const job = [...this.jobs.values()]
       .filter((candidate) => candidate.state === "queued" && input.capabilities.includes(candidate.serviceId))

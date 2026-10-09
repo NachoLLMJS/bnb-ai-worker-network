@@ -25,19 +25,54 @@ export async function buildServer(options: {
   workerToken: string;
   leaseSeconds: number;
 }) {
-  const app = Fastify({ logger: false, bodyLimit: 128_000 });
+  const app = Fastify({ logger: false, bodyLimit: 16_000_000 });
   const service = new JobService(options.store, { leaseSeconds: options.leaseSeconds });
   const userAuth = requireToken(options.userToken);
   const workerAuth = requireToken(options.workerToken);
 
   app.get("/health/live", async () => ({ ok: true }));
 
-  app.get("/api/services", { preHandler: userAuth }, async () => ({ services: listServices() }));
+  app.get("/api/services", async () => ({ services: listServices() }));
+
+  app.get("/api/explorer/jobs", async (request, reply) => {
+    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ error: "invalid_request" });
+    const jobs = await service.listPublicJobs(query.data.limit);
+    return {
+      jobs: jobs.map(({ id, prompt, serviceId, state, createdAt, updatedAt }) => ({
+        id, prompt, serviceId, state, output: null, createdAt, updatedAt
+      }))
+    };
+  });
+
+  app.get("/api/explorer/jobs/:jobId", async (request, reply) => {
+    const params = z.object({ jobId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) return reply.code(404).send({ error: "not_found" });
+    const detail = await service.getPublicJobDetail(params.data.jobId);
+    if (!detail) return reply.code(404).send({ error: "not_found" });
+    const { job, attempt } = detail;
+    return {
+      job: {
+        id: job.id,
+        prompt: job.prompt,
+        serviceId: job.serviceId,
+        state: job.state,
+        output: job.output,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt
+      },
+      work: {
+        claimedAt: attempt?.createdAt ?? null,
+        completedAt: attempt?.completedAt ?? null
+      }
+    };
+  });
 
   app.post("/api/jobs", { preHandler: userAuth }, async (request, reply) => {
     const parsed = z.object({
       prompt: z.string().min(1).max(8_000),
-      serviceId: z.string().min(3).max(100).default("text.ollama")
+      serviceId: z.string().min(3).max(100).default("text.ollama"),
+      isPublic: z.boolean().default(false)
     }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request", details: parsed.error.issues });
     if (!getService(parsed.data.serviceId)) return reply.code(400).send({ error: "unsupported_service" });
@@ -45,7 +80,7 @@ export async function buildServer(options: {
     if (typeof idempotencyKey !== "string" || idempotencyKey.length < 3 || idempotencyKey.length > 128) {
       return reply.code(400).send({ error: "invalid_idempotency_key" });
     }
-    const job = await service.createJob({ userId: "bootstrap-user", prompt: parsed.data.prompt, serviceId: parsed.data.serviceId, idempotencyKey });
+    const job = await service.createJob({ userId: "bootstrap-user", prompt: parsed.data.prompt, serviceId: parsed.data.serviceId, isPublic: parsed.data.isPublic, idempotencyKey });
     return reply.code(201).send(job);
   });
 
@@ -64,7 +99,7 @@ export async function buildServer(options: {
     const workerId = request.headers["x-worker-id"];
     if (typeof workerId !== "string") return reply.code(400).send({ error: "invalid_worker_id" });
     const params = z.object({ attemptId: z.string().uuid() }).safeParse(request.params);
-    const body = z.object({ leaseToken: z.string().min(20), output: z.string().min(1).max(100_000) }).safeParse(request.body);
+    const body = z.object({ leaseToken: z.string().min(20), output: z.string().min(1).max(15_000_000) }).safeParse(request.body);
     if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
     try {
       return await service.completeAttempt({ attemptId: params.data.attemptId, workerId, ...body.data });

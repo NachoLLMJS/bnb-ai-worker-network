@@ -1,0 +1,7 @@
+World map data notice
+
+The country outlines in world-map.svg were derived from the geo-countries dataset maintained at https://github.com/datasets/geo-countries, which in turn sources Natural Earth country boundaries.
+
+Natural Earth data is public domain. The datasets/geo-countries repository publishes the packaged data under the Open Data Commons Public Domain Dedication and License (PDDL).
+
+The yellow network arcs and location markers are original illustrative UI elements. They communicate worldwide availability and do not represent live worker telemetry.

@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import type { Job, JobStore } from "./types.js";
+import type { Attempt, Job, JobStore } from "./types.js";
 import { requireService } from "./service-catalog.js";
 
 function hashToken(value: string): string {
@@ -18,7 +18,7 @@ export class JobService {
     this.now = options.now ?? (() => new Date());
   }
 
-  async createJob(input: { userId: string; prompt: string; serviceId?: string; idempotencyKey?: string }): Promise<Job> {
+  async createJob(input: { userId: string; prompt: string; serviceId?: string; idempotencyKey?: string; isPublic?: boolean }): Promise<Job> {
     const prompt = input.prompt.trim();
     if (!prompt || prompt.length > 8_000) throw new Error("prompt must contain 1 to 8000 characters");
     const serviceId = input.serviceId ?? "text.ollama";
@@ -32,6 +32,7 @@ export class JobService {
       serviceId,
       state: "queued",
       output: null,
+      isPublic: input.isPublic ?? false,
       currentAttemptId: null,
       createdAt: now,
       updatedAt: now
@@ -40,6 +41,17 @@ export class JobService {
 
   listJobs(userId: string): Promise<Job[]> {
     return this.store.listJobs(userId);
+  }
+
+  listPublicJobs(limit = 50): Promise<Job[]> {
+    return this.store.listPublicJobs(Math.max(1, Math.min(limit, 100)));
+  }
+
+  async getPublicJobDetail(jobId: string): Promise<{ job: Job; attempt: Attempt | null } | null> {
+    const job = await this.store.getPublicJob(jobId);
+    if (!job) return null;
+    const attempt = job.currentAttemptId ? await this.store.getAttempt(job.currentAttemptId) : null;
+    return { job, attempt };
   }
 
   async claimNext(workerId: string, capabilities: string[] = ["text.ollama"]) {
@@ -67,7 +79,7 @@ export class JobService {
 
   async completeAttempt(input: { attemptId: string; workerId: string; leaseToken: string; output: string }): Promise<Job> {
     const output = input.output.trim();
-    if (!output || output.length > 100_000) throw new Error("output must contain 1 to 100000 characters");
+    if (!output || output.length > 15_000_000) throw new Error("output must contain 1 to 15000000 characters");
     const attempt = await this.store.getAttempt(input.attemptId);
     if (!attempt) throw new Error("attempt not found");
     if (attempt.workerId !== input.workerId) throw new Error("wrong worker");

@@ -9,7 +9,7 @@ describe("approved service catalog", () => {
       "text.openai.chatgpt",
       "text.openai.sol",
       "text.anthropic.fable",
-      "image.higgsfield.gpt-image-2.5",
+      "image.openai.gpt-image-2",
       "image.higgsfield.nano-banana-2",
       "image.higgsfield.seedream-5-pro",
       "image.higgsfield.recraft-4.1",
@@ -18,6 +18,7 @@ describe("approved service catalog", () => {
       "video.higgsfield.kling-3-turbo"
     ]));
     expect(services.every((service) => !JSON.stringify(service).match(/api[_-]?key|secret|token/i))).toBe(true);
+    expect(getService("image.openai.gpt-image-2")).toMatchObject({ kind: "image", provider: "OpenAI", executor: "openai" });
     expect(getService("video.higgsfield.seedance-2.5")).toMatchObject({ kind: "video", provider: "Higgsfield" });
   });
 });

@@ -10,6 +10,7 @@ function jobFromRow(row: QueryResultRow): Job {
     serviceId: row.service_id,
     state: row.state,
     output: row.output,
+    isPublic: row.is_public,
     currentAttemptId: row.current_attempt_id,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at)
@@ -42,6 +43,7 @@ export class PostgresJobStore implements JobStore {
         service_id text NOT NULL DEFAULT 'text.ollama',
         state text NOT NULL CHECK (state IN ('queued','active','succeeded','failed','cancelled')),
         output text,
+        is_public boolean NOT NULL DEFAULT false,
         current_attempt_id text,
         created_at timestamptz NOT NULL,
         updated_at timestamptz NOT NULL,
@@ -49,7 +51,9 @@ export class PostgresJobStore implements JobStore {
       );
       CREATE INDEX IF NOT EXISTS jobs_queue_idx ON jobs (state, created_at);
       ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_id text NOT NULL DEFAULT 'text.ollama';
+      ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;
       CREATE INDEX IF NOT EXISTS jobs_service_queue_idx ON jobs (state, service_id, created_at);
+      CREATE INDEX IF NOT EXISTS jobs_public_idx ON jobs (is_public, created_at DESC);
       CREATE TABLE IF NOT EXISTS job_attempts (
         id text PRIMARY KEY,
         job_id text NOT NULL REFERENCES jobs(id),
@@ -66,11 +70,11 @@ export class PostgresJobStore implements JobStore {
 
   async createJob(job: Job): Promise<Job> {
     const inserted = await this.pool.query(
-      `INSERT INTO jobs (id,user_id,idempotency_key,prompt,service_id,state,output,current_attempt_id,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      `INSERT INTO jobs (id,user_id,idempotency_key,prompt,service_id,state,output,is_public,current_attempt_id,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (user_id,idempotency_key) DO NOTHING
        RETURNING *`,
-      [job.id, job.userId, job.idempotencyKey, job.prompt, job.serviceId, job.state, job.output, job.currentAttemptId, job.createdAt, job.updatedAt]
+      [job.id, job.userId, job.idempotencyKey, job.prompt, job.serviceId, job.state, job.output, job.isPublic, job.currentAttemptId, job.createdAt, job.updatedAt]
     );
     if (inserted.rows[0]) return jobFromRow(inserted.rows[0]);
     const existing = await this.pool.query("SELECT * FROM jobs WHERE user_id=$1 AND idempotency_key=$2", [job.userId, job.idempotencyKey]);
@@ -80,6 +84,16 @@ export class PostgresJobStore implements JobStore {
   async listJobs(userId: string): Promise<Job[]> {
     const result = await this.pool.query("SELECT * FROM jobs WHERE user_id=$1 ORDER BY created_at DESC", [userId]);
     return result.rows.map(jobFromRow);
+  }
+
+  async listPublicJobs(limit: number): Promise<Job[]> {
+    const result = await this.pool.query("SELECT * FROM jobs WHERE is_public=true ORDER BY created_at DESC LIMIT $1", [limit]);
+    return result.rows.map(jobFromRow);
+  }
+
+  async getPublicJob(jobId: string): Promise<Job | null> {
+    const result = await this.pool.query("SELECT * FROM jobs WHERE id=$1 AND is_public=true", [jobId]);
+    return result.rows[0] ? jobFromRow(result.rows[0]) : null;
   }
 
   async claimNext(input: { workerId: string; capabilities: string[]; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {

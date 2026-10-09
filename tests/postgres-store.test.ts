@@ -22,6 +22,22 @@ describe("PostgresJobStore", () => {
     await pool.end();
   });
 
+  it("lists only jobs explicitly published to the Explorer", async () => {
+    const db = newDb();
+    const pg = db.adapters.createPg();
+    const pool = new pg.Pool();
+    const store = new PostgresJobStore(pool as never);
+    await store.initialize();
+    const service = new JobService(store, { leaseSeconds: 60 });
+    await service.createJob({ userId: "user-1", prompt: "private", idempotencyKey: "private-1" });
+    const published = await service.createJob({ userId: "user-1", prompt: "public", idempotencyKey: "public-1", isPublic: true });
+
+    const publicJobs = await store.listPublicJobs(20);
+    expect(publicJobs).toHaveLength(1);
+    expect(publicJobs[0]).toMatchObject({ id: published.id, prompt: "public", isPublic: true });
+    await pool.end();
+  });
+
   it("requeues a job when its old lease has expired", async () => {
     const db = newDb();
     const pg = db.adapters.createPg();

@@ -30,11 +30,11 @@ describe("JobService", () => {
     const job = await service.createJob({
       userId: "user-1",
       prompt: "Create a cinematic moonlit forest",
-      serviceId: "image.higgsfield.gpt-image-2.5"
+      serviceId: "image.openai.gpt-image-2"
     });
 
     expect(await service.claimNext("text-worker", ["text.ollama"])).toBeNull();
-    const lease = await service.claimNext("image-worker", ["image.higgsfield.gpt-image-2.5"]);
-    expect(lease?.job).toMatchObject({ id: job.id, serviceId: "image.higgsfield.gpt-image-2.5" });
+    const lease = await service.claimNext("image-worker", ["image.openai.gpt-image-2"]);
+    expect(lease?.job).toMatchObject({ id: job.id, serviceId: "image.openai.gpt-image-2" });
   });
 });

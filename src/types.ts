@@ -9,6 +9,7 @@ export interface Job {
   serviceId: string;
   state: JobState;
   output: string | null;
+  isPublic: boolean;
   currentAttemptId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -33,6 +34,8 @@ export interface ClaimedAttempt {
 export interface JobStore {
   createJob(job: Job): Promise<Job>;
   listJobs(userId: string): Promise<Job[]>;
+  listPublicJobs(limit: number): Promise<Job[]>;
+  getPublicJob(jobId: string): Promise<Job | null>;
   claimNext(input: { workerId: string; capabilities: string[]; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null>;
   getAttempt(attemptId: string): Promise<Attempt | null>;
   completeAttempt(input: { attemptId: string; output: string; completedAt: Date }): Promise<Job>;
