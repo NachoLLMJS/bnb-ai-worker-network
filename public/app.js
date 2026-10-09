@@ -1,4 +1,5 @@
 const TOKEN_KEY = "worker-relay-access";
+const PUBLIC_REQUEST_KEY = "bnb-compute-public-request";
 const validRoutes = new Set(["dashboard", "jobs", "workers", "submit", "inbox", "logs"]);
 const publicRoutes = new Set(["home", "explore", "job-detail", "network", "docs"]);
 const publicPaths = { home: "/", explore: "/explore", network: "/network", docs: "/docs" };
@@ -12,6 +13,7 @@ let jobsFilter = "all";
 let inboxFilter = "open";
 let selectedJobId = null;
 let poller;
+let publicRequestPoller;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -21,6 +23,12 @@ const accessOverlay = $("#access-overlay");
 const accessForm = $("#access-form");
 const accessKey = $("#access-key");
 const accessError = $("#access-error");
+const publicRequestForm = $("#public-request-form");
+const publicRequestPrompt = $("#public-request-prompt");
+const publicRequestService = $("#public-request-service");
+const publicRequestPublish = $("#public-request-publish");
+const publicRequestSubmit = $("#public-request-submit");
+const publicRequestError = $("#public-request-error");
 const appNav = $("#app-nav");
 const jobForm = $("#job-form");
 const prompt = $("#prompt");
@@ -47,6 +55,15 @@ async function api(path, options = {}) {
 async function publicApi(path) {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`Public request failed (${response.status})`);
+  return response.json();
+}
+
+async function publicRequestApi(path, options = {}) {
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error === "rate_limit_exceeded" ? "Too many requests. Try again in a few minutes." : body.error || `Request failed (${response.status})`);
+  }
   return response.json();
 }
 
@@ -316,6 +333,12 @@ async function loadPublicSite() {
   const [catalog, explorer] = await Promise.all([publicApi("/api/services"), publicApi("/api/explorer/jobs?limit=100")]);
   servicesById.clear();
   catalog.services.forEach((service) => servicesById.set(service.id, service));
+  publicRequestService.replaceChildren(...catalog.services.map((service) => {
+    const option = document.createElement("option");
+    option.value = service.id;
+    setText(option, `${service.label} · ${service.provider}`);
+    return option;
+  }));
   publicJobs = explorer.jobs;
   renderPublicCapabilities();
   renderPublicExplorer();
@@ -512,12 +535,75 @@ function openApp(route = routeFromPath()) {
   clearInterval(poller); poller = setInterval(() => loadJobs().catch(() => {}), 5000);
 }
 
+function publicRequestRecord() {
+  try { return JSON.parse(sessionStorage.getItem(PUBLIC_REQUEST_KEY) || "null"); }
+  catch { return null; }
+}
+
+function renderPublicRequestStatus(job) {
+  $("#public-request-status").hidden = false;
+  setText($("#public-request-id"), shortId(job.id));
+  $("#public-request-state").replaceChildren(stateBadge(job.state));
+  setText($("#public-request-prompt-copy"), job.prompt);
+  const result = $("#public-request-result");
+  if (job.output) result.replaceChildren(mediaResult(job, serviceFor(job)));
+  else {
+    const waiting = document.createElement("p");
+    setText(waiting, job.state === "active" ? "A compatible worker is processing this request." : "Waiting for a compatible worker.");
+    result.replaceChildren(waiting);
+  }
+}
+
+async function refreshPublicRequest() {
+  const record = publicRequestRecord();
+  if (!record?.id || !record?.token) return;
+  const job = await publicRequestApi(`/api/requests/${record.id}`, { headers: { "x-request-token": record.token } });
+  renderPublicRequestStatus(job);
+  if (["succeeded", "failed", "cancelled"].includes(job.state)) clearInterval(publicRequestPoller);
+}
+
+function startPublicRequestPolling() {
+  clearInterval(publicRequestPoller);
+  refreshPublicRequest().catch(() => {});
+  publicRequestPoller = setInterval(() => refreshPublicRequest().catch(() => {}), 4_000);
+}
+
 function lockApp() {
   sessionStorage.removeItem(TOKEN_KEY); clearInterval(poller); appShell.hidden = true; landingView.hidden = false; accessOverlay.hidden = true; accessKey.value = ""; history.replaceState({ publicRoute: "home" }, "", "/"); showPublicRoute("home", false);
 }
 
-function showAccess() { accessOverlay.hidden = false; requestAnimationFrame(() => accessKey.focus()); }
-function hideAccess() { accessOverlay.hidden = true; setText(accessError, ""); }
+function showAccess() {
+  accessOverlay.hidden = false;
+  startPublicRequestPolling();
+  requestAnimationFrame(() => publicRequestPrompt.focus());
+}
+function hideAccess() { accessOverlay.hidden = true; clearInterval(publicRequestPoller); setText(accessError, ""); setText(publicRequestError, ""); }
+
+publicRequestForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  publicRequestSubmit.disabled = true;
+  setText(publicRequestError, "");
+  try {
+    const created = await publicRequestApi("/api/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: publicRequestPrompt.value,
+        serviceId: publicRequestService.value,
+        isPublic: publicRequestPublish.checked
+      })
+    });
+    sessionStorage.setItem(PUBLIC_REQUEST_KEY, JSON.stringify({ id: created.job.id, token: created.requesterToken }));
+    renderPublicRequestStatus(created.job);
+    publicRequestPrompt.value = "";
+    publicRequestPublish.checked = false;
+    startPublicRequestPolling();
+  } catch (error) {
+    setText(publicRequestError, error.message);
+  } finally {
+    publicRequestSubmit.disabled = false;
+  }
+});
 
 accessForm.addEventListener("submit", async (event) => {
   event.preventDefault(); sessionStorage.setItem(TOKEN_KEY, accessKey.value.trim()); setText(accessError, "");

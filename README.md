@@ -7,11 +7,13 @@ Production: `https://api-production-cc9f.up.railway.app`
 ## Current scope
 
 - Public Swiss-light homepage, job Explorer, vector worker map, and installation documentation.
-- Private requester workspace protected by a beta access key.
+- Public job requests without a pre-issued key, with a browser-held per-job tracking token for private results.
+- Optional private workspace protected by a beta access key.
 - PostgreSQL-backed job queue on Railway.
 - Atomic leases with expiry and stale-result rejection.
 - Friend-operated outbound-only worker agent.
-- Capability-aware workers for Ollama, OpenAI, Anthropic, DeepSeek, and approved Higgsfield image/video services.
+- Anonymous jobs can be claimed only by workers that explicitly enable `ACCEPT_PUBLIC_REQUESTS=true`.
+- Capability-aware workers for Ollama, OpenAI API, Anthropic API, DeepSeek, approved Higgsfield media services, Codex with ChatGPT login, and Claude Code with Claude login.
 - Public jobs are explicit opt-in; private is the default.
 - No token, payment, NFT, wallet, arbitrary user code, or fabricated worker telemetry.
 
@@ -40,7 +42,7 @@ Set `USER_ACCESS_TOKEN`, `ADMIN_ACCESS_TOKEN`, and `WORKER_ACCESS_TOKEN`, then:
 npm start
 ```
 
-Open `http://localhost:3000`. Public pages require no login; submitting or managing jobs requires the user access token.
+Open `http://localhost:3000`. Public pages and `POST /api/requests` require no login. Anonymous requests are private by default and return a one-time tracking token that the browser keeps in `sessionStorage`. Worker claim and completion endpoints still require the worker access token.
 
 ## Friend-operated workers
 
@@ -63,4 +65,4 @@ npm audit --omit=dev
 
 ## Security boundary
 
-This beta accepts text instructions only. Assigned workers can read assigned prompts. Do not submit credentials, regulated data, private keys, confidential repositories, or personal documents. The current access-key login is suitable for a small invited beta, not public multi-tenant production.
+This beta accepts text instructions only. Assigned workers can read assigned prompts. Do not submit credentials, regulated data, private keys, confidential repositories, or personal documents. Public submission is rate-limited, private by default, and does not grant access to worker claim or completion endpoints.

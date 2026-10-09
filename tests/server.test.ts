@@ -51,6 +51,87 @@ describe("HTTP API", () => {
     expect(list.json().jobs[0].output).toBe("Hello from the worker");
   });
 
+  it("lets anyone request a private job without a key while only authenticated workers can claim and complete it", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(),
+      userToken: "user-secret",
+      adminToken: "admin-secret",
+      workerToken: "worker-secret",
+      leaseSeconds: 60
+    });
+    servers.push(server);
+
+    const created = await server.inject({
+      method: "POST",
+      url: "/api/requests",
+      payload: { prompt: "Summarize this public request", serviceId: "text.ollama" }
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().job).toMatchObject({ state: "queued", isPublic: false });
+    expect(created.json().requesterToken).toHaveLength(43);
+    expect(created.json().job).not.toHaveProperty("userId");
+    expect(created.json().job).not.toHaveProperty("requesterTokenHash");
+
+    const jobId = created.json().job.id;
+    const requesterToken = created.json().requesterToken;
+    const explorer = await server.inject({ method: "GET", url: "/api/explorer/jobs" });
+    expect(explorer.json().jobs).toHaveLength(0);
+
+    const anonymousClaim = await server.inject({ method: "POST", url: "/api/worker/claim", payload: { capabilities: ["text.ollama"] } });
+    expect(anonymousClaim.statusCode).toBe(401);
+
+    const defaultWorkerClaim = await server.inject({
+      method: "POST",
+      url: "/api/worker/claim",
+      headers: { authorization: "Bearer worker-secret", "x-worker-id": "private-only-worker" },
+      payload: { capabilities: ["text.ollama"] }
+    });
+    expect(defaultWorkerClaim.statusCode).toBe(204);
+
+    const claim = await server.inject({
+      method: "POST",
+      url: "/api/worker/claim",
+      headers: { authorization: "Bearer worker-secret", "x-worker-id": "public-request-worker" },
+      payload: { capabilities: ["text.ollama"], acceptPublicRequests: true }
+    });
+    expect(claim.statusCode).toBe(200);
+    expect(claim.json().job).not.toHaveProperty("userId");
+    expect(claim.json().job).not.toHaveProperty("requesterTokenHash");
+
+    const completed = await server.inject({
+      method: "POST",
+      url: `/api/worker/attempts/${claim.json().attempt.id}/complete`,
+      headers: { authorization: "Bearer worker-secret", "x-worker-id": "public-request-worker" },
+      payload: { leaseToken: claim.json().leaseToken, output: "Public request completed" }
+    });
+    expect(completed.statusCode).toBe(200);
+
+    const wrongToken = await server.inject({ method: "GET", url: `/api/requests/${jobId}`, headers: { "x-request-token": "x".repeat(43) } });
+    expect(wrongToken.statusCode).toBe(404);
+    const status = await server.inject({ method: "GET", url: `/api/requests/${jobId}`, headers: { "x-request-token": requesterToken } });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({ state: "succeeded", output: "Public request completed", isPublic: false });
+  });
+
+  it("rate limits public job requests without turning requester access into a shared key", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(),
+      userToken: "user-secret",
+      adminToken: "admin-secret",
+      workerToken: "worker-secret",
+      leaseSeconds: 60
+    });
+    servers.push(server);
+
+    for (let index = 0; index < 10; index += 1) {
+      const response = await server.inject({ method: "POST", url: "/api/requests", payload: { prompt: `request ${index}` } });
+      expect(response.statusCode).toBe(201);
+    }
+    const limited = await server.inject({ method: "POST", url: "/api/requests", payload: { prompt: "request 11" } });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toEqual({ error: "rate_limit_exceeded" });
+  });
+
   it("publishes only explicitly public jobs through the unauthenticated explorer", async () => {
     const server = await buildServer({
       store: new MemoryJobStore(),

@@ -11,6 +11,7 @@ function jobFromRow(row: QueryResultRow): Job {
     state: row.state,
     output: row.output,
     isPublic: row.is_public,
+    requesterTokenHash: row.requester_token_hash ?? null,
     currentAttemptId: row.current_attempt_id,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at)
@@ -44,6 +45,7 @@ export class PostgresJobStore implements JobStore {
         state text NOT NULL CHECK (state IN ('queued','active','succeeded','failed','cancelled')),
         output text,
         is_public boolean NOT NULL DEFAULT false,
+        requester_token_hash text,
         current_attempt_id text,
         created_at timestamptz NOT NULL,
         updated_at timestamptz NOT NULL,
@@ -52,6 +54,7 @@ export class PostgresJobStore implements JobStore {
       CREATE INDEX IF NOT EXISTS jobs_queue_idx ON jobs (state, created_at);
       ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_id text NOT NULL DEFAULT 'text.ollama';
       ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;
+      ALTER TABLE jobs ADD COLUMN IF NOT EXISTS requester_token_hash text;
       CREATE INDEX IF NOT EXISTS jobs_service_queue_idx ON jobs (state, service_id, created_at);
       CREATE INDEX IF NOT EXISTS jobs_public_idx ON jobs (is_public, created_at DESC);
       CREATE TABLE IF NOT EXISTS job_attempts (
@@ -70,11 +73,11 @@ export class PostgresJobStore implements JobStore {
 
   async createJob(job: Job): Promise<Job> {
     const inserted = await this.pool.query(
-      `INSERT INTO jobs (id,user_id,idempotency_key,prompt,service_id,state,output,is_public,current_attempt_id,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `INSERT INTO jobs (id,user_id,idempotency_key,prompt,service_id,state,output,is_public,requester_token_hash,current_attempt_id,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (user_id,idempotency_key) DO NOTHING
        RETURNING *`,
-      [job.id, job.userId, job.idempotencyKey, job.prompt, job.serviceId, job.state, job.output, job.isPublic, job.currentAttemptId, job.createdAt, job.updatedAt]
+      [job.id, job.userId, job.idempotencyKey, job.prompt, job.serviceId, job.state, job.output, job.isPublic, job.requesterTokenHash, job.currentAttemptId, job.createdAt, job.updatedAt]
     );
     if (inserted.rows[0]) return jobFromRow(inserted.rows[0]);
     const existing = await this.pool.query("SELECT * FROM jobs WHERE user_id=$1 AND idempotency_key=$2", [job.userId, job.idempotencyKey]);
@@ -96,7 +99,12 @@ export class PostgresJobStore implements JobStore {
     return result.rows[0] ? jobFromRow(result.rows[0]) : null;
   }
 
-  async claimNext(input: { workerId: string; capabilities: string[]; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
+  async getJob(jobId: string): Promise<Job | null> {
+    const result = await this.pool.query("SELECT * FROM jobs WHERE id=$1", [jobId]);
+    return result.rows[0] ? jobFromRow(result.rows[0]) : null;
+  }
+
+  async claimNext(input: { workerId: string; capabilities: string[]; acceptPublicRequests: boolean; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -105,13 +113,14 @@ export class PostgresJobStore implements JobStore {
         await client.query("COMMIT");
         return null;
       }
-      const capabilityPlaceholders = input.capabilities.map((_, index) => `$${index + 3}`).join(",");
+      const capabilityPlaceholders = input.capabilities.map((_, index) => `$${index + 4}`).join(",");
       const claimed = await client.query(
         `UPDATE jobs SET state='active', current_attempt_id=$1, updated_at=$2
-         WHERE id=(SELECT id FROM jobs WHERE state='queued' AND service_id IN (${capabilityPlaceholders}) ORDER BY created_at ASC LIMIT 1)
+         WHERE id=(SELECT id FROM jobs WHERE state='queued' AND service_id IN (${capabilityPlaceholders})
+           AND (requester_token_hash IS NULL OR $3=true) ORDER BY created_at ASC LIMIT 1)
            AND state='queued'
          RETURNING *`,
-        [input.attemptId, input.now, ...input.capabilities]
+        [input.attemptId, input.now, input.acceptPublicRequests, ...input.capabilities]
       );
       if (!claimed.rows[0]) {
         await client.query("COMMIT");

@@ -34,9 +34,14 @@ export class MemoryJobStore implements JobStore {
     return job?.isPublic ? structuredClone(job) : null;
   }
 
-  async claimNext(input: { workerId: string; capabilities: string[]; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
+  async getJob(jobId: string): Promise<Job | null> {
+    const job = this.jobs.get(jobId);
+    return job ? structuredClone(job) : null;
+  }
+
+  async claimNext(input: { workerId: string; capabilities: string[]; acceptPublicRequests: boolean; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
     const job = [...this.jobs.values()]
-      .filter((candidate) => candidate.state === "queued" && input.capabilities.includes(candidate.serviceId))
+      .filter((candidate) => candidate.state === "queued" && input.capabilities.includes(candidate.serviceId) && (!candidate.requesterTokenHash || input.acceptPublicRequests))
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
     if (!job) return null;
 

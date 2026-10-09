@@ -9,6 +9,9 @@ describe("BNB AI Network web application", () => {
     const html = await readFile(join(root, "public", "index.html"), "utf8");
     expect(html).toContain("BNB AI NETWORK");
     expect(html).toContain('id="access-form"');
+    expect(html).toContain('id="public-request-form"');
+    expect(html).toContain("No access key is required");
+    expect(html).toContain("Private is the default");
     expect(html).toContain('/assets/world-map.svg');
     expect(html).not.toContain('/assets/bnb-worker-reference.png');
     expect(html).not.toContain('/assets/global-worker-map.png');
@@ -71,6 +74,9 @@ describe("BNB AI Network web application", () => {
     expect(html).toContain('/assets/logos/higgsfield.png');
     expect(html).toContain('/assets/logos/deepseek.svg');
     expect(html).toContain('DeepSeek');
+    expect(html).toContain('Codex and Claude Code subscriptions');
+    expect(html).toContain('text.openai.codex');
+    expect(html).toContain('text.anthropic.claude-code');
     expect(html).toContain("Free private beta");
     expect(html).not.toContain("Connect Wallet");
     expect(html).not.toContain("Earn on BNB");
@@ -90,6 +96,9 @@ describe("BNB AI Network web application", () => {
     expect(source).toContain("openJobDetail(selectedJobId, false)");
     expect(source).toContain("/api/jobs");
     expect(source).toContain("/api/explorer/jobs");
+    expect(source).toContain('publicRequestApi("/api/requests"');
+    expect(source).toContain('"x-request-token"');
+    expect(source).toContain("PUBLIC_REQUEST_KEY");
     expect(source).toContain("publicRoutes");
     expect(source).toContain("renderPublicExplorer");
     expect(source).toContain("openPublicJobDetail");

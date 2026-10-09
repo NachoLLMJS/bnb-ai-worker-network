@@ -4,6 +4,7 @@ import { generateWithDeepSeek } from "../src/deepseek-adapter.js";
 import { generateWithHiggsfield } from "../src/higgsfield-adapter.js";
 import { generateWithOpenAI } from "../src/openai-adapter.js";
 import { buildWorkerExecutor } from "../src/provider-registry.js";
+import { generateWithClaudeCodeSubscription, generateWithCodexSubscription, subscriptionCliIsLoggedIn } from "../src/subscription-cli-adapter.js";
 
 describe("hosted text adapters", () => {
   it("calls the OpenAI Responses API and returns output text", async () => {
@@ -54,6 +55,33 @@ describe("Higgsfield adapter", () => {
   });
 });
 
+describe("subscription CLI adapters", () => {
+  it("accepts Codex login status when the CLI writes it to stderr", () => {
+    expect(subscriptionCliIsLoggedIn("codex", "", "Logged in using ChatGPT\n")).toBe(true);
+  });
+
+  it("runs Codex with tools disabled and keeps worker secrets out of its environment", async () => {
+    const runner = vi.fn(async (input: { command: string; args: string[]; env: NodeJS.ProcessEnv; stdin: string }) => {
+      expect(input.args).toEqual(expect.arrayContaining(["exec", "--ephemeral", "--sandbox", "read-only", "--disable", "shell_tool", "--json"]));
+      expect(input.args.at(-1)).toBe("-");
+      expect(input.stdin).toContain("review this function");
+      expect(input.env.WORKER_ACCESS_TOKEN).toBeUndefined();
+      return '{"type":"item.completed","item":{"type":"agent_message","text":"Codex result"}}\n';
+    });
+    await expect(generateWithCodexSubscription({ command: "codex-test", prompt: "review this function", sourceEnv: { PATH: "test", HOME: "home", WORKER_ACCESS_TOKEN: "secret" }, runner })).resolves.toBe("Codex result");
+  });
+
+  it("runs Claude Code in restricted no-tools mode", async () => {
+    const runner = vi.fn(async (input: { args: string[]; env: NodeJS.ProcessEnv; stdin: string }) => {
+      expect(input.args).toEqual(expect.arrayContaining(["--print", "--safe-mode", "--restricted", "--tools", ""]));
+      expect(input.stdin).toContain("explain this code");
+      expect(input.env.ANTHROPIC_API_KEY).toBeUndefined();
+      return JSON.stringify({ type: "result", subtype: "success", result: "Claude result" });
+    });
+    await expect(generateWithClaudeCodeSubscription({ command: "claude-test", prompt: "explain this code", sourceEnv: { PATH: "test", HOME: "home", ANTHROPIC_API_KEY: "secret" }, runner })).resolves.toBe("Claude result");
+  });
+});
+
 describe("worker provider registry", () => {
   it("requires explicit capabilities and fails closed when a hosted credential is missing", () => {
     expect(() => buildWorkerExecutor({ WORKER_CAPABILITIES: "text.openai.sol" })).toThrow("OPENAI_API_KEY is required");
@@ -67,5 +95,16 @@ describe("worker provider registry", () => {
       DEEPSEEK_API_KEY: "configured"
     });
     expect(worker.capabilities).toEqual(["text.ollama", "text.anthropic.fable", "text.deepseek.v4-pro"]);
+  });
+
+  it("requires explicit subscription CLI opt-in", () => {
+    expect(() => buildWorkerExecutor({ WORKER_CAPABILITIES: "text.openai.codex" })).toThrow("SUBSCRIPTION_CLI_ENABLED=true is required");
+    const probe = vi.fn();
+    const worker = buildWorkerExecutor({
+      WORKER_CAPABILITIES: "text.openai.codex,text.anthropic.claude-code",
+      SUBSCRIPTION_CLI_ENABLED: "true"
+    }, { subscriptionProbe: probe });
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(worker.capabilities).toEqual(["text.openai.codex", "text.anthropic.claude-code"]);
   });
 });

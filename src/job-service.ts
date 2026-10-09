@@ -18,7 +18,7 @@ export class JobService {
     this.now = options.now ?? (() => new Date());
   }
 
-  async createJob(input: { userId: string; prompt: string; serviceId?: string; idempotencyKey?: string; isPublic?: boolean }): Promise<Job> {
+  async createJob(input: { userId: string; prompt: string; serviceId?: string; idempotencyKey?: string; isPublic?: boolean; requesterTokenHash?: string | null }): Promise<Job> {
     const prompt = input.prompt.trim();
     if (!prompt || prompt.length > 8_000) throw new Error("prompt must contain 1 to 8000 characters");
     const serviceId = input.serviceId ?? "text.ollama";
@@ -33,10 +33,30 @@ export class JobService {
       state: "queued",
       output: null,
       isPublic: input.isPublic ?? false,
+      requesterTokenHash: input.requesterTokenHash ?? null,
       currentAttemptId: null,
       createdAt: now,
       updatedAt: now
     });
+  }
+
+  async createPublicRequest(input: { prompt: string; serviceId?: string; isPublic?: boolean }): Promise<{ job: Job; requesterToken: string }> {
+    const requesterToken = randomBytes(32).toString("base64url");
+    const requesterTokenHash = hashToken(requesterToken);
+    const job = await this.createJob({
+      userId: `anonymous:${requesterTokenHash.slice(0, 24)}`,
+      prompt: input.prompt,
+      serviceId: input.serviceId,
+      isPublic: input.isPublic ?? false,
+      requesterTokenHash
+    });
+    return { job, requesterToken };
+  }
+
+  async getRequesterJob(jobId: string, requesterToken: string): Promise<Job | null> {
+    const job = await this.store.getJob(jobId);
+    if (!job?.requesterTokenHash || !equalText(job.requesterTokenHash, hashToken(requesterToken))) return null;
+    return job;
   }
 
   listJobs(userId: string): Promise<Job[]> {
@@ -54,7 +74,7 @@ export class JobService {
     return { job, attempt };
   }
 
-  async claimNext(workerId: string, capabilities: string[] = ["text.ollama"]) {
+  async claimNext(workerId: string, capabilities: string[] = ["text.ollama"], acceptPublicRequests = false) {
     const approvedCapabilities = [...new Set(capabilities)].filter((capability) => {
       try {
         requireService(capability);
@@ -69,6 +89,7 @@ export class JobService {
     const claimed = await this.store.claimNext({
       workerId,
       capabilities: approvedCapabilities,
+      acceptPublicRequests,
       attemptId: randomUUID(),
       leaseTokenHash: hashToken(leaseToken),
       leaseExpiresAt: new Date(now.getTime() + this.options.leaseSeconds * 1000),
