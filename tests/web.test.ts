@@ -17,6 +17,8 @@ describe("BNB AI Network web application", () => {
     expect(html).toContain('id="public-job-timeline"');
     expect(html).toContain('id="docs-binance"');
     expect(html).toContain('class="swiss-hero"');
+    expect(html).not.toContain('class="swiss-map"');
+    expect(html).not.toContain('class="map-dots"');
     expect(html).toContain('class="provider-strip"');
     expect(html).toContain('class="landing-benefits"');
     expect(html).toContain('data-public-route="home"');
@@ -53,6 +55,8 @@ describe("BNB AI Network web application", () => {
     expect(css).toContain("@media(max-width:760px)");
     expect(css).toContain(".app-nav");
     expect(css).toContain(".swiss-hero");
+    expect(css).not.toContain(".swiss-map");
+    expect(css).not.toContain(".map-dots");
     expect(css).toContain(".provider-strip");
     expect(css).toContain(".landing-benefits");
     expect(css).toContain("grid-template-columns:minmax(0,1000px) minmax(360px,1fr)");
