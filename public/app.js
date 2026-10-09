@@ -20,6 +20,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const landingView = $("#landing-view");
 const appShell = $("#app-shell");
 const accessOverlay = $("#access-overlay");
+const workspaceOverlay = $("#workspace-overlay");
 const accessForm = $("#access-form");
 const accessKey = $("#access-key");
 const accessError = $("#access-error");
@@ -530,7 +531,7 @@ async function loadJobs() {
 async function loadWorkspace() { await Promise.all([loadServices(), loadJobs()]); }
 
 function openApp(route = routeFromPath()) {
-  landingView.hidden = true; accessOverlay.hidden = true; appShell.hidden = false;
+  landingView.hidden = true; accessOverlay.hidden = true; workspaceOverlay.hidden = true; appShell.hidden = false;
   navigate(route, false);
   clearInterval(poller); poller = setInterval(() => loadJobs().catch(() => {}), 5000);
 }
@@ -569,7 +570,7 @@ function startPublicRequestPolling() {
 }
 
 function lockApp() {
-  sessionStorage.removeItem(TOKEN_KEY); clearInterval(poller); appShell.hidden = true; landingView.hidden = false; accessOverlay.hidden = true; accessKey.value = ""; history.replaceState({ publicRoute: "home" }, "", "/"); showPublicRoute("home", false);
+  sessionStorage.removeItem(TOKEN_KEY); clearInterval(poller); appShell.hidden = true; landingView.hidden = false; accessOverlay.hidden = true; workspaceOverlay.hidden = true; accessKey.value = ""; history.replaceState({ publicRoute: "home" }, "", "/"); showPublicRoute("home", false);
 }
 
 function showAccess() {
@@ -578,6 +579,8 @@ function showAccess() {
   requestAnimationFrame(() => publicRequestPrompt.focus());
 }
 function hideAccess() { accessOverlay.hidden = true; clearInterval(publicRequestPoller); setText(accessError, ""); setText(publicRequestError, ""); }
+function showWorkspace() { workspaceOverlay.hidden = false; requestAnimationFrame(() => accessKey.focus()); }
+function hideWorkspace() { workspaceOverlay.hidden = true; setText(accessError, ""); }
 
 publicRequestForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -621,11 +624,15 @@ jobForm.addEventListener("submit", async (event) => {
 });
 
 $("#open-access").addEventListener("click", showAccess);
+$("#open-workspace").addEventListener("click", showWorkspace);
 $("#hero-access").addEventListener("click", showAccess);
 $("#close-access").addEventListener("click", hideAccess);
+$("#close-workspace").addEventListener("click", hideWorkspace);
 accessOverlay.addEventListener("click", (event) => { if (event.target === accessOverlay) hideAccess(); });
+workspaceOverlay.addEventListener("click", (event) => { if (event.target === workspaceOverlay) hideWorkspace(); });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !accessOverlay.hidden) hideAccess();
+  if (event.key === "Escape" && !workspaceOverlay.hidden) hideWorkspace();
   const publicJobCardControl = event.target.closest?.("[data-public-job-id]");
   if (publicJobCardControl && ["Enter", " "].includes(event.key)) { event.preventDefault(); openPublicJobDetail(publicJobCardControl.dataset.publicJobId); }
 });
@@ -661,7 +668,7 @@ window.addEventListener("popstate", () => {
   if (["/", "/explore", "/network", "/docs"].includes(location.pathname)) { showPublicRoute(publicRouteFromPath(), false); return; }
   const publicJobId = publicJobIdFromPath();
   if (publicJobId) { openPublicJobDetail(publicJobId, false); return; }
-  if (!token()) { showPublicRoute("home", false); showAccess(); return; }
+  if (!token()) { showPublicRoute("home", false); showWorkspace(); return; }
   const detailMatch = location.pathname.match(/^\/jobs\/([0-9a-f-]+)$/i);
   if (detailMatch) openJobDetail(detailMatch[1], false); else { appShell.hidden = false; landingView.hidden = true; navigate(routeFromPath(), false); }
 });
@@ -684,5 +691,5 @@ if (initialPublicJobId) {
 }).catch(lockApp);
 else {
   showPublicRoute("home", false);
-  showAccess();
+  showWorkspace();
 }

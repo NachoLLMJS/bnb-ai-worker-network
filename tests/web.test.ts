@@ -10,6 +10,11 @@ describe("BNB AI Network web application", () => {
     expect(html).toContain("BNB AI NETWORK");
     expect(html).toContain('id="access-form"');
     expect(html).toContain('id="public-request-form"');
+    const requestDialog = html.match(/<div id="access-overlay"[\s\S]*?<\/div>\s*<div id="workspace-overlay"/)?.[0] ?? "";
+    expect(requestDialog).not.toContain("Open the private beta workspace");
+    expect(requestDialog).not.toContain('id="access-form"');
+    expect(html).toContain('id="open-workspace"');
+    expect(html).toContain('id="workspace-overlay"');
     expect(html).toContain("No access key is required");
     expect(html).toContain("Private is the default");
     expect(html).toContain('/assets/world-map.svg');
