@@ -9,6 +9,8 @@ describe("approved service catalog", () => {
       "text.openai.chatgpt",
       "text.openai.sol",
       "text.anthropic.fable",
+      "text.deepseek.flash",
+      "text.deepseek.v4-pro",
       "image.openai.gpt-image-2",
       "image.higgsfield.nano-banana-2",
       "image.higgsfield.seedream-5-pro",
@@ -19,6 +21,8 @@ describe("approved service catalog", () => {
     ]));
     expect(services.every((service) => !JSON.stringify(service).match(/api[_-]?key|secret|token/i))).toBe(true);
     expect(getService("image.openai.gpt-image-2")).toMatchObject({ kind: "image", provider: "OpenAI", executor: "openai" });
+    expect(getService("text.deepseek.flash")).toMatchObject({ kind: "text", provider: "DeepSeek", executor: "deepseek", modelId: "deepseek-flash" });
+    expect(getService("text.deepseek.v4-pro")).toMatchObject({ kind: "text", provider: "DeepSeek", executor: "deepseek", modelId: "deepseek-v4-pro" });
     expect(getService("video.higgsfield.seedance-2.5")).toMatchObject({ kind: "video", provider: "Higgsfield" });
   });
 });

@@ -9,7 +9,6 @@ describe("BNB AI Network web application", () => {
     const html = await readFile(join(root, "public", "index.html"), "utf8");
     expect(html).toContain("BNB AI NETWORK");
     expect(html).toContain('id="access-form"');
-    expect(html).toContain('/assets/bnb-ai-command-center.webp');
     expect(html).toContain('/assets/world-map.svg');
     expect(html).not.toContain('/assets/bnb-worker-reference.png');
     expect(html).not.toContain('/assets/global-worker-map.png');
@@ -17,7 +16,8 @@ describe("BNB AI Network web application", () => {
     expect(html).toContain('id="public-job-artifact"');
     expect(html).toContain('id="public-job-timeline"');
     expect(html).toContain('id="docs-binance"');
-    expect(html).toContain('class="hero-artwork"');
+    expect(html).toContain('class="swiss-hero"');
+    expect(html).toContain('class="provider-strip"');
     expect(html).toContain('class="landing-benefits"');
     expect(html).toContain('data-public-route="home"');
     expect(html).toContain('data-public-route="explore"');
@@ -41,18 +41,37 @@ describe("BNB AI Network web application", () => {
     expect(html).not.toContain("user-secret");
   });
 
-  it("uses a dark BNB-yellow responsive design system from the supplied reference", async () => {
-    const css = await readFile(join(root, "public", "styles.css"), "utf8");
-    expect(css).toContain("--yellow:#f3ba2f");
-    expect(css).toContain("--bg:#070d14");
+  it("uses the selected Swiss-light system with real local brand assets and honest beta copy", async () => {
+    const [html, css] = await Promise.all([
+      readFile(join(root, "public", "index.html"), "utf8"),
+      readFile(join(root, "public", "styles.css"), "utf8"),
+    ]);
+    expect(css).toContain("--yellow:#f0b90b");
+    expect(css).toContain("--paper:#f7f7f2");
+    expect(css).toContain("--ink:#0a0a0a");
     expect(css).toContain("[hidden]{display:none!important}");
     expect(css).toContain("@media(max-width:760px)");
     expect(css).toContain(".app-nav");
-    expect(css).toContain(".hero-artwork");
-    expect(css).toContain("background-image:url(\"/assets/bnb-ai-command-center.webp\")");
+    expect(css).toContain(".swiss-hero");
+    expect(css).toContain(".provider-strip");
     expect(css).toContain(".landing-benefits");
+    expect(css).toContain("grid-template-columns:minmax(0,1000px) minmax(360px,1fr)");
+    expect(css).toContain("aspect-ratio:15/7");
+    expect(css).toContain("align-items:start");
     expect(css).toContain(".stat-grid");
     expect(css).toContain(".jobs-table");
+    expect(html).toContain('/assets/logos/bnb-chain.ico');
+    expect(html).toContain('/assets/logos/openai.svg');
+    expect(html).toContain('/assets/logos/anthropic.svg');
+    expect(html).toContain('/assets/logos/ollama.png');
+    expect(html).toContain('/assets/logos/higgsfield.png');
+    expect(html).toContain('/assets/logos/deepseek.svg');
+    expect(html).toContain('DeepSeek');
+    expect(html).toContain("Free private beta");
+    expect(html).not.toContain("Connect Wallet");
+    expect(html).not.toContain("Earn on BNB");
+    expect(html).not.toContain("Payment (BNB)");
+    expect(html).not.toContain('/assets/bnb-ai-command-center.webp');
   });
 
   it("routes between real data views and never fabricates wallet or worker telemetry", async () => {

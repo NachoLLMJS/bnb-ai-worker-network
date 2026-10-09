@@ -1,0 +1,10 @@
+Brand asset provenance
+
+- bnb-chain.ico — BNB Chain official website favicon: https://static.bnbchain.org/home-ui/static/images/favicon.ico
+- openai.svg — OpenAI/ChatGPT knot logo mirrored from Wikimedia Commons for local rendering: https://commons.wikimedia.org/wiki/File:ChatGPT_logo.svg
+- anthropic.svg — Anthropic brand mark from the Simple Icons project: https://simpleicons.org/?q=anthropic
+- ollama.png — Ollama official website image: https://ollama.com/public/ollama.png
+- higgsfield.png — Higgsfield official website icon: https://higgsfield.ai/icon.png
+- deepseek.svg — DeepSeek official API documentation logo: https://api-docs.deepseek.com/img/logo-mark-light.svg
+
+These marks identify supported providers. Their inclusion does not imply endorsement, partnership, or ownership by this project.

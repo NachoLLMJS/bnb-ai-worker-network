@@ -22,4 +22,26 @@ describe("static web registration", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("BNB AI NETWORK");
   });
+
+  it("serves nested local brand assets instead of the SPA fallback", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(),
+      userToken: "user-secret",
+      adminToken: "admin-secret",
+      workerToken: "worker-secret",
+      leaseSeconds: 60
+    });
+    servers.push(server);
+    await registerWeb(server, join(import.meta.dirname, "..", "public"));
+    const response = await server.inject({ method: "GET", url: "/assets/logos/openai.svg" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("image/svg+xml");
+    expect(response.body).toContain("<svg");
+    expect(response.body).not.toContain("<!doctype html>");
+
+    const deepseek = await server.inject({ method: "GET", url: "/assets/logos/deepseek.svg" });
+    expect(deepseek.statusCode).toBe(200);
+    expect(deepseek.headers["content-type"]).toContain("image/svg+xml");
+    expect(deepseek.payload).toContain("<svg");
+  });
 });

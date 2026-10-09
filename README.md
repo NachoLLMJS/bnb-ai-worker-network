@@ -1,15 +1,19 @@
-# Worker Relay
+# BNB AI Worker Network
 
-Invite-only MVP for routing AI text jobs from a Railway-hosted coordinator to approved computers or VPS workers.
+Free private beta for routing text, image, and video jobs from a Railway-hosted coordinator to approved computers or VPS workers.
+
+Production: `https://api-production-cc9f.up.railway.app`
 
 ## Current scope
 
-- Private web inbox protected by a beta access key.
+- Public Swiss-light homepage, job Explorer, vector worker map, and installation documentation.
+- Private requester workspace protected by a beta access key.
 - PostgreSQL-backed job queue on Railway.
 - Atomic leases with expiry and stale-result rejection.
 - Friend-operated outbound-only worker agent.
-- Capability-aware workers for Ollama, OpenAI ChatGPT/Sol, Anthropic Fable, and approved Higgsfield image/video services.
-- No token, payment, NFT, wallet, arbitrary user code, or public worker enrollment.
+- Capability-aware workers for Ollama, OpenAI, Anthropic, DeepSeek, and approved Higgsfield image/video services.
+- Public jobs are explicit opt-in; private is the default.
+- No token, payment, NFT, wallet, arbitrary user code, or fabricated worker telemetry.
 
 ## Architecture
 
@@ -21,7 +25,7 @@ Browser -> Railway API -> Railway PostgreSQL
                   worker + Ollama
 ```
 
-The worker receives a prompt only after claiming a time-limited lease. It never receives database credentials or Railway administration access.
+The worker receives a prompt only after claiming a time-limited lease. Provider keys stay on the worker machine, and the worker never receives database credentials or Railway administration access.
 
 ## Local coordinator
 
@@ -36,7 +40,7 @@ Set `USER_ACCESS_TOKEN`, `ADMIN_ACCESS_TOKEN`, and `WORKER_ACCESS_TOKEN`, then:
 npm start
 ```
 
-Open `http://localhost:3000` and enter the user access token.
+Open `http://localhost:3000`. Public pages require no login; submitting or managing jobs requires the user access token.
 
 ## Friend-operated workers
 
