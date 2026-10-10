@@ -12,7 +12,7 @@ describe("individual worker credentials", () => {
   it("registers an idempotent worker-bound token, lists metadata, and revokes it", async () => {
     const credentials = new MemoryWorkerCredentialStore();
     const server = await buildServer({
-      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret",
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "legacy-worker-secret", legacyWorkerTokenEnabled: false,
       workerCredentials: credentials, leaseSeconds: 60
     });
@@ -59,7 +59,7 @@ describe("individual worker credentials", () => {
 
   it("can explicitly disable the universal legacy token", async () => {
     const server = await buildServer({
-      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret",
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "legacy-worker-secret", legacyWorkerTokenEnabled: false,
       workerCredentials: new MemoryWorkerCredentialStore(), leaseSeconds: 60
     });

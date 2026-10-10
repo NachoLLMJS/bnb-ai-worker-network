@@ -184,7 +184,7 @@ export class PostgresJobStore implements JobStore {
       await client.query("BEGIN");
       const attemptResult = await client.query(
         `UPDATE job_attempts SET state='succeeded', completed_at=$2
-         WHERE id=$1 AND state='leased' RETURNING *`,
+         WHERE id=$1 AND state='leased' AND lease_expires_at > $2 RETURNING *`,
         [input.attemptId, input.completedAt]
       );
       const attempt = attemptResult.rows[0];

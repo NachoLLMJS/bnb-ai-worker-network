@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import { JobService } from "./job-service.js";
@@ -41,30 +41,50 @@ export async function buildServer(options: {
   store: JobStore;
   userToken: string;
   adminToken: string;
+  openWorkerSigningKey: string;
   workerToken: string;
   legacyWorkerTokenEnabled: boolean;
   workerCredentials?: WorkerCredentialStore;
   leaseSeconds: number;
 }) {
+  const signingKeyBytes = /^[A-Za-z0-9_-]{43}$/.test(options.openWorkerSigningKey)
+    ? Buffer.from(options.openWorkerSigningKey, "base64url")
+    : null;
+  if (!signingKeyBytes || signingKeyBytes.length !== 32 || signingKeyBytes.toString("base64url") !== options.openWorkerSigningKey
+    || [options.userToken, options.adminToken, options.workerToken].some((value) => value && value === options.openWorkerSigningKey)) {
+    throw new Error("OPEN_WORKER_SIGNING_KEY must be an independent 32-byte base64url secret");
+  }
   const app = Fastify({ logger: false, bodyLimit: 16_000_000, trustProxy: (_address: string, hop: number) => hop === 0 });
   const service = new JobService(options.store, { leaseSeconds: options.leaseSeconds });
   const userAuth = requireToken(options.userToken);
   const adminAuth = requireToken(options.adminToken);
+  const openWorkerToken = (workerId: string) => `bncw_${createHmac("sha256", signingKeyBytes).update(`open-worker:${workerId}`).digest("base64url")}`;
   const workerAuth = async (request: FastifyRequest, reply: FastifyReply) => {
     if (options.legacyWorkerTokenEnabled && tokenMatches(request.headers.authorization, options.workerToken)) return;
     const token = bearerToken(request.headers.authorization);
     if (!token) return reply.code(401).send({ error: "unauthorized" });
     const workerId = request.headers["x-worker-id"];
     if (typeof workerId !== "string" || !/^[a-zA-Z0-9_-]{3,64}$/.test(workerId)) return reply.code(400).send({ error: "invalid_worker_id" });
+    if (tokenMatches(request.headers.authorization, openWorkerToken(workerId))) {
+      if (!options.workerCredentials || await options.workerCredentials.isOpenWorkerRevoked(workerId)) {
+        return reply.code(401).send({ error: "unauthorized" });
+      }
+      return;
+    }
     if (!options.workerCredentials || !await options.workerCredentials.authenticate(token, workerId)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
   };
   const publicRequests = new Map<string, { count: number; resetAt: number }>();
+  const workerEnrollments = new Map<string, { count: number; resetAt: number }>();
 
   const publicRequestRateLimit = async (request: FastifyRequest, reply: FastifyReply) => {
     const now = Date.now();
     const current = publicRequests.get(request.ip);
+    if (!current && publicRequests.size >= 10_000) {
+      for (const [ip, limit] of publicRequests) if (limit.resetAt <= now) publicRequests.delete(ip);
+      if (publicRequests.size >= 10_000) return reply.code(429).send({ error: "rate_limit_capacity" });
+    }
     if (!current || current.resetAt <= now) {
       publicRequests.set(request.ip, { count: 1, resetAt: now + 10 * 60_000 });
       return;
@@ -76,6 +96,37 @@ export async function buildServer(options: {
   app.get("/health/live", async () => ({ ok: true }));
 
   app.get("/api/services", async () => ({ services: listServices() }));
+
+  app.post("/api/workers/enroll", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const parsed = z.object({ name: z.string().trim().min(1).max(80) }).strict().safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    const now = Date.now();
+    const current = workerEnrollments.get(request.ip);
+    if (current && current.resetAt > now && current.count >= 5) return reply.code(429).send({ error: "rate_limit_exceeded" });
+    if (!current && workerEnrollments.size >= 10_000) {
+      for (const [ip, limit] of workerEnrollments) if (limit.resetAt <= now) workerEnrollments.delete(ip);
+      if (workerEnrollments.size >= 10_000) return reply.code(429).send({ error: "rate_limit_capacity" });
+    }
+    if (!current || current.resetAt <= now) workerEnrollments.set(request.ip, { count: 1, resetAt: now + 60 * 60_000 });
+    else current.count += 1;
+    const base = parsed.data.name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "worker";
+    const workerId = `${base}-${randomBytes(16).toString("hex")}`;
+    const workerToken = openWorkerToken(workerId);
+    return reply.code(201).send({ name: parsed.data.name, workerId, workerToken });
+  });
+
+  app.post("/api/workers/verify", { preHandler: workerAuth }, async (_request, reply) => reply.code(204).send());
+
+  app.post("/api/admin/open-workers/:workerId/revoke", { preHandler: adminAuth }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!options.workerCredentials) return reply.code(503).send({ error: "worker_credentials_unavailable" });
+    const parsed = z.object({ workerId: z.string().regex(/^[a-zA-Z0-9_-]{3,64}$/) }).safeParse(request.params);
+    if (!parsed.success) return reply.code(404).send({ error: "not_found" });
+    await options.workerCredentials.revokeOpenWorker(parsed.data.workerId);
+    return reply.code(204).send();
+  });
 
   app.put("/api/admin/worker-credentials/:issuanceId", { preHandler: adminAuth }, async (request, reply) => {
     reply.header("cache-control", "no-store");

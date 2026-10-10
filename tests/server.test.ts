@@ -1,16 +1,119 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildServer } from "../src/server.js";
 import { MemoryJobStore } from "../src/memory-job-store.js";
+import { MemoryWorkerCredentialStore } from "../src/worker-credential-store.js";
 
 const servers: Awaited<ReturnType<typeof buildServer>>[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => server.close())); });
 
 describe("HTTP API", () => {
+  it("rejects weak or reused open-worker signing keys", async () => {
+    const base = {
+      store: new MemoryJobStore(), userToken: "u".repeat(43), adminToken: "a".repeat(43),
+      workerToken: "w".repeat(43), legacyWorkerTokenEnabled: false,
+      workerCredentials: new MemoryWorkerCredentialStore(), leaseSeconds: 60
+    };
+    await expect(buildServer({ ...base, openWorkerSigningKey: "short" })).rejects.toThrow("OPEN_WORKER_SIGNING_KEY");
+    await expect(buildServer({ ...base, openWorkerSigningKey: `${"A".repeat(42)}B` })).rejects.toThrow("OPEN_WORKER_SIGNING_KEY");
+    await expect(buildServer({ ...base, openWorkerSigningKey: base.adminToken })).rejects.toThrow("OPEN_WORKER_SIGNING_KEY");
+  });
+
+  it("lets any operator enroll a worker without a pre-issued code and use the returned private identity", async () => {
+    const credentials = new MemoryWorkerCredentialStore();
+    await credentials.initialize();
+    const server = await buildServer({
+      store: new MemoryJobStore(),
+      userToken: "user-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
+      workerToken: "",
+      legacyWorkerTokenEnabled: false,
+      workerCredentials: credentials,
+      leaseSeconds: 60
+    });
+    servers.push(server);
+
+    const enrolled = await server.inject({
+      method: "POST",
+      url: "/api/workers/enroll",
+      payload: { name: "Amigo 3" }
+    });
+    expect(enrolled.statusCode).toBe(201);
+    expect(enrolled.headers["cache-control"]).toBe("no-store");
+    expect(enrolled.json()).toMatchObject({ name: "Amigo 3" });
+    expect(enrolled.json().workerId).toMatch(/^amigo-3-[a-f0-9]{32}$/);
+    expect(enrolled.json().workerToken).toMatch(/^bncw_[A-Za-z0-9_-]{43}$/);
+    expect(await credentials.list()).toHaveLength(0);
+
+    const verified = await server.inject({
+      method: "POST", url: "/api/workers/verify",
+      headers: { authorization: `Bearer ${enrolled.json().workerToken}`, "x-worker-id": enrolled.json().workerId }
+    });
+    expect(verified.statusCode).toBe(204);
+
+    const created = await server.inject({
+      method: "POST",
+      url: "/api/requests",
+      payload: { prompt: "Write a short greeting" }
+    });
+    expect(created.statusCode).toBe(201);
+
+    const claim = await server.inject({
+      method: "POST",
+      url: "/api/worker/claim",
+      headers: {
+        authorization: `Bearer ${enrolled.json().workerToken}`,
+        "x-worker-id": enrolled.json().workerId
+      },
+      payload: { capabilities: ["text.ollama"], acceptPublicRequests: true }
+    });
+    expect(claim.statusCode).toBe(200);
+
+    const mismatched = await server.inject({
+      method: "POST",
+      url: "/api/worker/claim",
+      headers: {
+        authorization: `Bearer ${enrolled.json().workerToken}`,
+        "x-worker-id": `${enrolled.json().workerId.slice(0, -1)}${enrolled.json().workerId.endsWith("0") ? "1" : "0"}`
+      },
+      payload: { capabilities: ["text.ollama"], acceptPublicRequests: true }
+    });
+    expect(mismatched.statusCode).toBe(401);
+
+    const revoked = await server.inject({
+      method: "POST",
+      url: `/api/admin/open-workers/${enrolled.json().workerId}/revoke`,
+      headers: { authorization: "Bearer admin-secret" }
+    });
+    expect(revoked.statusCode).toBe(204);
+    expect(await credentials.isOpenWorkerRevoked(enrolled.json().workerId)).toBe(true);
+
+    const rejectedAfterRevocation = await server.inject({
+      method: "POST", url: "/api/workers/verify",
+      headers: { authorization: `Bearer ${enrolled.json().workerToken}`, "x-worker-id": enrolled.json().workerId }
+    });
+    expect(rejectedAfterRevocation.statusCode).toBe(401);
+  });
+
+  it("bounds open enrollment and does not charge malformed requests against the allowance", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
+      workerToken: "", legacyWorkerTokenEnabled: false, workerCredentials: new MemoryWorkerCredentialStore(), leaseSeconds: 60
+    });
+    servers.push(server);
+    for (let index = 0; index < 8; index += 1) {
+      expect((await server.inject({ method: "POST", url: "/api/workers/enroll", payload: {} })).statusCode).toBe(400);
+    }
+    for (let index = 0; index < 5; index += 1) {
+      expect((await server.inject({ method: "POST", url: "/api/workers/enroll", payload: { name: `Worker ${index}` } })).statusCode).toBe(201);
+    }
+    expect((await server.inject({ method: "POST", url: "/api/workers/enroll", payload: { name: "Worker 6" } })).statusCode).toBe(429);
+  });
+
   it("keeps user jobs private and lets an authorized worker complete one", async () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
-      adminToken: "admin-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "worker-secret",
       legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
@@ -56,7 +159,7 @@ describe("HTTP API", () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
-      adminToken: "admin-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "worker-secret",
       legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
@@ -119,7 +222,7 @@ describe("HTTP API", () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
-      adminToken: "admin-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "worker-secret",
       legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
@@ -139,7 +242,7 @@ describe("HTTP API", () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
-      adminToken: "admin-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "worker-secret",
       legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
@@ -215,7 +318,7 @@ describe("HTTP API", () => {
 
   it("accepts a published image artifact while keeping large data URLs out of explorer lists", async () => {
     const server = await buildServer({
-      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43), workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
     });
     servers.push(server);
     const created = await server.inject({ method: "POST", url: "/api/jobs", headers: { authorization: "Bearer user-secret", "idempotency-key": "public-image" }, payload: { prompt: "Generate a map image", isPublic: true } });
@@ -233,7 +336,7 @@ describe("HTTP API", () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
-      adminToken: "admin-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "worker-secret",
       legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
@@ -275,7 +378,7 @@ describe("HTTP API", () => {
 
   it("rejects requester-selected services on public and private request APIs", async () => {
     const server = await buildServer({
-      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43), workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
     });
     servers.push(server);
 

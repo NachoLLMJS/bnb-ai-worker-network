@@ -3,6 +3,18 @@ import { JobService } from "../src/job-service.js";
 import { MemoryJobStore } from "../src/memory-job-store.js";
 
 describe("lease safety", () => {
+  it("rejects an expired lease inside the store completion boundary", async () => {
+    const store = new MemoryJobStore();
+    const service = new JobService(store, { leaseSeconds: 10, now: () => new Date("2026-10-08T12:00:00.000Z") });
+    await service.createJob({ userId: "user-1", prompt: "hello" });
+    const lease = await service.claimNext("worker-1");
+    await expect(store.completeAttempt({
+      attemptId: lease!.attempt.id,
+      output: "too late",
+      completedAt: new Date("2026-10-08T12:00:11.000Z")
+    })).rejects.toThrow("attempt is not active");
+  });
+
   it("rejects completion from an expired lease", async () => {
     let now = new Date("2026-10-08T12:00:00.000Z");
     const service = new JobService(new MemoryJobStore(), {

@@ -34,6 +34,7 @@ const app = await buildServer({
   store,
   userToken: required("USER_ACCESS_TOKEN"),
   adminToken: required("ADMIN_ACCESS_TOKEN"),
+  openWorkerSigningKey: required("OPEN_WORKER_SIGNING_KEY"),
   workerToken: process.env.WORKER_ACCESS_TOKEN?.trim() || "",
   legacyWorkerTokenEnabled: process.env.LEGACY_WORKER_TOKEN_ENABLED?.trim().toLowerCase() === "true",
   workerCredentials,

@@ -11,7 +11,7 @@ Production: `https://api-production-cc9f.up.railway.app`
 - Optional private workspace protected by a beta access key.
 - PostgreSQL-backed job queue on Railway.
 - Atomic leases with expiry and stale-result rejection.
-- Friend-operated outbound-only worker agent with individually revocable credentials.
+- Open-enrollment outbound-only worker agents with automatically generated, individually revocable credentials.
 - Anonymous jobs can be claimed only by workers that explicitly enable `ACCEPT_PUBLIC_REQUESTS=true`.
 - Capability-aware workers for Ollama, OpenAI API, Anthropic API keys, DeepSeek, approved Higgsfield media services, and Codex with ChatGPT login. Claude consumer subscriptions are not used as worker credentials.
 - Public jobs are explicit opt-in; private is the default.
@@ -36,17 +36,17 @@ npm install
 npm run build
 ```
 
-Set `USER_ACCESS_TOKEN` and `ADMIN_ACCESS_TOKEN`. The shared `WORKER_ACCESS_TOKEN` is legacy-only and is ignored unless `LEGACY_WORKER_TOKEN_ENABLED=true`; production should leave that flag false.
+Set `USER_ACCESS_TOKEN`, `ADMIN_ACCESS_TOKEN`, and an independent cryptographically random `OPEN_WORKER_SIGNING_KEY` containing exactly 32 random bytes encoded as 43 base64url characters without padding; do not reuse any other token. The shared `WORKER_ACCESS_TOKEN` is legacy-only and is ignored unless `LEGACY_WORKER_TOKEN_ENABLED=true`; production should leave that flag false.
 
 ```bash
 npm start
 ```
 
-Open `http://localhost:3000`. Public pages and `POST /api/requests` require no login. Anonymous requests are private by default and return a one-time tracking token that the browser keeps in `sessionStorage`. Worker claim and completion endpoints require either an individually issued worker credential or the legacy/bootstrap worker token.
+Open `http://localhost:3000`. Public pages and `POST /api/requests` require no login. Anonymous requests are private by default and return a one-time tracking token that the browser keeps in `sessionStorage`. A worker enrolls itself through `POST /api/workers/enroll`; the coordinator returns a random per-device ID and a server-authenticated token, then requires that exact identity for claim and completion. Open enrollment is stateless and does not add a database row per signup.
 
-## Individual worker credentials
+## Worker credentials
 
-Production stores only SHA-256 hashes of randomly generated 256-bit worker tokens. Each credential has a label, creation time, last-use metadata, and an independent revocation switch. The plaintext token is returned only at issuance.
+Normal workers create a stateless server-authenticated identity automatically on first start, so no invitation code is needed. The generated token remains on the worker machine. An administrator can revoke its worker ID through the persistent denylist. Manually administered credentials are still available for controlled deployments; those tokens are random, stored only as SHA-256 hashes, and independently revocable.
 
 Issue credentials from an operator machine whose environment securely contains `ADMIN_ACCESS_TOKEN`:
 
@@ -61,6 +61,7 @@ Administrative API routes are protected by `ADMIN_ACCESS_TOKEN`:
 - `PUT /api/admin/worker-credentials/:issuanceId` idempotently registers one pre-generated, worker-bound credential.
 - `GET /api/admin/worker-credentials` lists metadata without token values or hashes.
 - `POST /api/admin/worker-credentials/:credentialId/revoke` revokes one credential.
+- `POST /api/admin/open-workers/:workerId/revoke` persistently revokes one automatically enrolled identity.
 
 ## Friend-operated workers
 

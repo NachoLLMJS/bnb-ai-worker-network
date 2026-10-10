@@ -24,6 +24,8 @@ export interface WorkerCredentialStore {
   authenticate(token: string, workerId: string): Promise<boolean>;
   list(): Promise<WorkerCredential[]>;
   revoke(id: string): Promise<WorkerCredential | null>;
+  revokeOpenWorker(workerId: string): Promise<void>;
+  isOpenWorkerRevoked(workerId: string): Promise<boolean>;
 }
 
 function hashToken(token: string): string {
@@ -48,6 +50,7 @@ function sameRegistration(record: WorkerCredential & { tokenHash: string }, inpu
 
 export class MemoryWorkerCredentialStore implements WorkerCredentialStore {
   private readonly records = new Map<string, WorkerCredential & { tokenHash: string }>();
+  private readonly revokedOpenWorkers = new Set<string>();
 
   async initialize(): Promise<void> {}
 
@@ -87,6 +90,14 @@ export class MemoryWorkerCredentialStore implements WorkerCredentialStore {
     const { tokenHash: _tokenHash, ...credential } = record;
     return { ...credential };
   }
+
+  async revokeOpenWorker(workerId: string): Promise<void> {
+    this.revokedOpenWorkers.add(workerId);
+  }
+
+  async isOpenWorkerRevoked(workerId: string): Promise<boolean> {
+    return this.revokedOpenWorkers.has(workerId);
+  }
 }
 
 export class PostgresWorkerCredentialStore implements WorkerCredentialStore {
@@ -106,6 +117,10 @@ export class PostgresWorkerCredentialStore implements WorkerCredentialStore {
       );
       CREATE INDEX IF NOT EXISTS worker_credentials_enabled_idx ON worker_credentials (enabled);
       CREATE UNIQUE INDEX IF NOT EXISTS worker_credentials_active_worker_idx ON worker_credentials (worker_id) WHERE enabled=true;
+      CREATE TABLE IF NOT EXISTS revoked_open_workers (
+        worker_id text PRIMARY KEY,
+        revoked_at timestamptz NOT NULL
+      );
     `);
   }
 
@@ -158,5 +173,17 @@ export class PostgresWorkerCredentialStore implements WorkerCredentialStore {
   async revoke(id: string): Promise<WorkerCredential | null> {
     const result = await this.pool.query("UPDATE worker_credentials SET enabled=false WHERE id=$1 RETURNING *", [id]);
     return result.rows[0] ? credentialFromRow(result.rows[0]) : null;
+  }
+
+  async revokeOpenWorker(workerId: string): Promise<void> {
+    await this.pool.query(
+      "INSERT INTO revoked_open_workers (worker_id, revoked_at) VALUES ($1,$2) ON CONFLICT (worker_id) DO NOTHING",
+      [workerId, new Date()]
+    );
+  }
+
+  async isOpenWorkerRevoked(workerId: string): Promise<boolean> {
+    const result = await this.pool.query("SELECT 1 FROM revoked_open_workers WHERE worker_id=$1", [workerId]);
+    return Boolean(result.rows[0]);
   }
 }

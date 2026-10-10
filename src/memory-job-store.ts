@@ -71,7 +71,7 @@ export class MemoryJobStore implements JobStore {
 
   async completeAttempt(input: { attemptId: string; output: string; completedAt: Date }): Promise<Job> {
     const attempt = this.attempts.get(input.attemptId);
-    if (!attempt || attempt.state !== "leased") throw new Error("attempt is not active");
+    if (!attempt || attempt.state !== "leased" || attempt.leaseExpiresAt.getTime() <= input.completedAt.getTime()) throw new Error("attempt is not active");
     const job = this.jobs.get(attempt.jobId);
     if (!job || job.currentAttemptId !== attempt.id || job.state !== "active") throw new Error("attempt is stale");
     attempt.state = "succeeded";

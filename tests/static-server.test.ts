@@ -12,7 +12,7 @@ describe("static web registration", () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
-      adminToken: "admin-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "worker-secret",
       legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
@@ -28,7 +28,7 @@ describe("static web registration", () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
-      adminToken: "admin-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "worker-secret",
       legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
@@ -51,7 +51,7 @@ describe("static web registration", () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
-      adminToken: "admin-secret",
+      adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
       workerToken: "worker-secret",
       legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
