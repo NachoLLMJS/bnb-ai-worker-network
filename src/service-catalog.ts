@@ -162,3 +162,18 @@ export function requireService(id: string): ServiceDefinition {
   if (!service) throw new Error("unsupported service");
   return service;
 }
+
+export function firstServiceForKind(kind: ServiceKind): ServiceDefinition {
+  return { ...services.find((service) => service.kind === kind)! };
+}
+
+export function selectServicesForRequirements(requirements: readonly ServiceKind[], capabilities: readonly string[]): string[] | null {
+  const advertised = new Set(capabilities);
+  const selected: string[] = [];
+  for (const kind of requirements) {
+    const serviceId = services.find((service) => service.kind === kind && advertised.has(service.id))?.id;
+    if (!serviceId) return null;
+    selected.push(serviceId);
+  }
+  return selected;
+}

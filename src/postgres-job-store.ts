@@ -1,13 +1,20 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Attempt, ClaimedAttempt, Job, JobStore } from "./types.js";
+import { requirementsFromLegacyServiceId } from "./job-requirements.js";
 
 function jobFromRow(row: QueryResultRow): Job {
+  let requirements = requirementsFromLegacyServiceId(row.service_id);
+  try {
+    const parsed = JSON.parse(row.requirements_json ?? "null");
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((kind) => kind === "text" || kind === "image" || kind === "video")) requirements = parsed;
+  } catch {}
   return {
     id: row.id,
     userId: row.user_id,
     idempotencyKey: row.idempotency_key,
     prompt: row.prompt,
     serviceId: row.service_id,
+    requirements,
     state: row.state,
     output: row.output,
     isPublic: row.is_public,
@@ -42,6 +49,7 @@ export class PostgresJobStore implements JobStore {
         idempotency_key text NOT NULL,
         prompt text NOT NULL,
         service_id text NOT NULL DEFAULT 'text.ollama',
+        requirements_json text NOT NULL DEFAULT '["text"]',
         state text NOT NULL CHECK (state IN ('queued','active','succeeded','failed','cancelled')),
         output text,
         is_public boolean NOT NULL DEFAULT false,
@@ -55,6 +63,14 @@ export class PostgresJobStore implements JobStore {
       ALTER TABLE jobs ADD COLUMN IF NOT EXISTS service_id text NOT NULL DEFAULT 'text.ollama';
       ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;
       ALTER TABLE jobs ADD COLUMN IF NOT EXISTS requester_token_hash text;
+      ALTER TABLE jobs ADD COLUMN IF NOT EXISTS requirements_json text;
+      UPDATE jobs SET requirements_json = CASE
+        WHEN service_id LIKE 'image.%' THEN '["image"]'
+        WHEN service_id LIKE 'video.%' THEN '["video"]'
+        ELSE '["text"]'
+      END WHERE requirements_json IS NULL;
+      ALTER TABLE jobs ALTER COLUMN requirements_json SET DEFAULT '["text"]';
+      ALTER TABLE jobs ALTER COLUMN requirements_json SET NOT NULL;
       CREATE INDEX IF NOT EXISTS jobs_service_queue_idx ON jobs (state, service_id, created_at);
       CREATE INDEX IF NOT EXISTS jobs_public_idx ON jobs (is_public, created_at DESC);
       CREATE TABLE IF NOT EXISTS job_attempts (
@@ -73,11 +89,11 @@ export class PostgresJobStore implements JobStore {
 
   async createJob(job: Job): Promise<Job> {
     const inserted = await this.pool.query(
-      `INSERT INTO jobs (id,user_id,idempotency_key,prompt,service_id,state,output,is_public,requester_token_hash,current_attempt_id,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `INSERT INTO jobs (id,user_id,idempotency_key,prompt,service_id,requirements_json,state,output,is_public,requester_token_hash,current_attempt_id,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (user_id,idempotency_key) DO NOTHING
        RETURNING *`,
-      [job.id, job.userId, job.idempotencyKey, job.prompt, job.serviceId, job.state, job.output, job.isPublic, job.requesterTokenHash, job.currentAttemptId, job.createdAt, job.updatedAt]
+      [job.id, job.userId, job.idempotencyKey, job.prompt, job.serviceId, JSON.stringify(job.requirements), job.state, job.output, job.isPublic, job.requesterTokenHash, job.currentAttemptId, job.createdAt, job.updatedAt]
     );
     if (inserted.rows[0]) return jobFromRow(inserted.rows[0]);
     const existing = await this.pool.query("SELECT * FROM jobs WHERE user_id=$1 AND idempotency_key=$2", [job.userId, job.idempotencyKey]);
@@ -104,7 +120,7 @@ export class PostgresJobStore implements JobStore {
     return result.rows[0] ? jobFromRow(result.rows[0]) : null;
   }
 
-  async claimNext(input: { workerId: string; capabilities: string[]; acceptPublicRequests: boolean; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
+  async claimNext(input: { workerId: string; capabilities: string[]; capabilityKinds: import("./service-catalog.js").ServiceKind[]; acceptPublicRequests: boolean; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -113,14 +129,16 @@ export class PostgresJobStore implements JobStore {
         await client.query("COMMIT");
         return null;
       }
-      const capabilityPlaceholders = input.capabilities.map((_, index) => `$${index + 4}`).join(",");
       const claimed = await client.query(
         `UPDATE jobs SET state='active', current_attempt_id=$1, updated_at=$2
-         WHERE id=(SELECT id FROM jobs WHERE state='queued' AND service_id IN (${capabilityPlaceholders})
+         WHERE id=(SELECT id FROM jobs WHERE state='queued'
+           AND (requirements_json NOT LIKE '%"text"%' OR $4=true)
+           AND (requirements_json NOT LIKE '%"image"%' OR $5=true)
+           AND (requirements_json NOT LIKE '%"video"%' OR $6=true)
            AND (requester_token_hash IS NULL OR $3=true) ORDER BY created_at ASC LIMIT 1)
            AND state='queued'
          RETURNING *`,
-        [input.attemptId, input.now, input.acceptPublicRequests, ...input.capabilities]
+        [input.attemptId, input.now, input.acceptPublicRequests, input.capabilityKinds.includes("text"), input.capabilityKinds.includes("image"), input.capabilityKinds.includes("video")]
       );
       if (!claimed.rows[0]) {
         await client.query("COMMIT");

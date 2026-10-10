@@ -1,4 +1,5 @@
 import type { Attempt, ClaimedAttempt, Job, JobStore } from "./types.js";
+import { selectServicesForRequirements } from "./service-catalog.js";
 
 export class MemoryJobStore implements JobStore {
   private readonly jobs = new Map<string, Job>();
@@ -39,9 +40,9 @@ export class MemoryJobStore implements JobStore {
     return job ? structuredClone(job) : null;
   }
 
-  async claimNext(input: { workerId: string; capabilities: string[]; acceptPublicRequests: boolean; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
+  async claimNext(input: { workerId: string; capabilities: string[]; capabilityKinds: import("./service-catalog.js").ServiceKind[]; acceptPublicRequests: boolean; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null> {
     const job = [...this.jobs.values()]
-      .filter((candidate) => candidate.state === "queued" && input.capabilities.includes(candidate.serviceId) && (!candidate.requesterTokenHash || input.acceptPublicRequests))
+      .filter((candidate) => candidate.state === "queued" && selectServicesForRequirements(candidate.requirements, input.capabilities) !== null && (!candidate.requesterTokenHash || input.acceptPublicRequests))
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
     if (!job) return null;
 

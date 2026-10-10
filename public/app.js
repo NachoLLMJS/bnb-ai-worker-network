@@ -43,7 +43,6 @@ const accessKey = $("#access-key");
 const accessError = $("#access-error");
 const publicRequestForm = $("#public-request-form");
 const publicRequestPrompt = $("#public-request-prompt");
-const publicRequestService = $("#public-request-service");
 const publicRequestPublish = $("#public-request-publish");
 const publicRequestSubmit = $("#public-request-submit");
 const publicRequestError = $("#public-request-error");
@@ -51,7 +50,6 @@ const appNav = $("#app-nav");
 const jobForm = $("#job-form");
 const prompt = $("#prompt");
 const promptCount = $("#prompt-count");
-const serviceId = $("#service-id");
 const publishJob = $("#publish-job");
 const submitJob = $("#submit-job");
 const jobError = $("#job-error");
@@ -101,6 +99,8 @@ function relativeTime(value) {
 
 function shortId(id) { return `#${id.slice(0, 4).toUpperCase()}`; }
 function serviceFor(job) { return servicesById.get(job.serviceId) || { id: job.serviceId, label: job.serviceId || "Local model", provider: "Unknown", kind: "text" }; }
+function requirementsFor(job) { return Array.isArray(job.requirements) && job.requirements.length ? job.requirements : [serviceFor(job).kind]; }
+function requirementsLabel(job) { return requirementsFor(job).map((kind) => kind.charAt(0).toUpperCase() + kind.slice(1)).join(" + "); }
 function titleFor(job) {
   const text = job.prompt.trim().replace(/\s+/g, " ");
   return text.length > 58 ? `${text.slice(0, 57)}…` : text;
@@ -136,12 +136,12 @@ function safeMediaUrl(value, kind) {
   return null;
 }
 
-function mediaResult(job, service) {
-  const url = safeMediaUrl(job.output, service.kind);
+function singleMediaResult(output, service) {
+  const url = safeMediaUrl(output, service.kind);
   if (!url || !["image", "video"].includes(service.kind)) {
     const result = document.createElement("pre");
     result.className = "result-text";
-    setText(result, job.output || "No result yet");
+    setText(result, output || "No result yet");
     return result;
   }
   const wrapper = document.createElement("div");
@@ -149,7 +149,7 @@ function mediaResult(job, service) {
   if (service.kind === "image") {
     const image = document.createElement("img");
     image.src = url;
-    image.alt = `Generated image from ${service.label}`;
+    image.alt = `Generated ${service.kind} result`;
     image.loading = "lazy";
     image.referrerPolicy = "no-referrer";
     wrapper.append(image);
@@ -171,6 +171,28 @@ function mediaResult(job, service) {
   return wrapper;
 }
 
+function mediaResult(job, service) {
+  let composite = null;
+  try {
+    const parsed = JSON.parse(job.output || "null");
+    if (parsed && Array.isArray(parsed.services) && parsed.services.length > 1) composite = parsed.services;
+  } catch {}
+  if (!composite) return singleMediaResult(job.output, service);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "composite-result";
+  for (const part of composite) {
+    if (!part || typeof part.serviceId !== "string" || typeof part.output !== "string") continue;
+    const partService = servicesById.get(part.serviceId) || { id: part.serviceId, label: part.serviceId, provider: "Worker", kind: part.serviceId.split(".")[0] };
+    const section = document.createElement("section");
+    const heading = document.createElement("h3");
+    setText(heading, `${partService.kind.toUpperCase()} RESULT`);
+    section.append(heading, singleMediaResult(part.output, partService));
+    wrapper.append(section);
+  }
+  return wrapper.childElementCount ? wrapper : singleMediaResult(job.output, service);
+}
+
 function publicJobIdFromPath() {
   const match = location.pathname.match(/^\/explore\/jobs\/([0-9a-f-]+)$/i);
   return match ? match[1] : null;
@@ -187,7 +209,7 @@ function publicRouteFromPath() {
 function publicJobMatches(job) {
   if (publicFilter === "all") return true;
   if (["active", "succeeded"].includes(publicFilter)) return job.state === publicFilter;
-  return serviceFor(job).kind === publicFilter;
+  return requirementsFor(job).includes(publicFilter);
 }
 
 function publicJobCard(job, compact = false) {
@@ -202,7 +224,7 @@ function publicJobCard(job, compact = false) {
   const body = document.createElement("div"); body.className = "public-job-body";
   const heading = document.createElement("div"); heading.className = "public-job-heading";
   const title = document.createElement("h3"); setText(title, titleFor(job));
-  const meta = document.createElement("span"); setText(meta, `${service.label} · ${relativeTime(job.updatedAt || job.createdAt)}`);
+  const meta = document.createElement("span"); setText(meta, `${requirementsLabel(job)} required · ${relativeTime(job.updatedAt || job.createdAt)}`);
   heading.append(title, meta);
   const result = document.createElement("div"); result.className = "public-job-result";
   if (!compact && job.output) result.append(mediaResult(job, service));
@@ -274,14 +296,14 @@ async function openPublicJobDetail(jobId, push = true) {
     const job = detail.job;
     const service = serviceFor(job);
     setText($("#public-detail-icon"), kindSymbol(service.kind));
-    setText($("#public-detail-service"), `${service.provider} · ${service.label}`);
+    setText($("#public-detail-service"), `${requirementsLabel(job)} required · automatic worker match`);
     setText($("#public-detail-id"), shortId(job.id));
     setText($("#public-detail-title"), titleFor(job));
     $("#public-detail-state").replaceChildren(stateBadge(job.state));
     setText($("#public-detail-age"), relativeTime(job.updatedAt || job.createdAt));
     setText($("#public-detail-prompt"), job.prompt);
-    setText($("#public-artifact-title"), service.kind === "text" ? "Published Response" : `Published ${service.kind.charAt(0).toUpperCase() + service.kind.slice(1)}`);
-    setText($("#public-artifact-meta"), `${service.provider} · ${service.id}`);
+    setText($("#public-artifact-title"), requirementsFor(job).length > 1 ? "Published Results" : service.kind === "text" ? "Published Response" : `Published ${service.kind.charAt(0).toUpperCase() + service.kind.slice(1)}`);
+    setText($("#public-artifact-meta"), "Completed by one compatible worker");
     if (job.output) $("#public-job-artifact").replaceChildren(mediaResult(job, service));
     else { const empty = document.createElement("div"); empty.className = "artifact-empty"; setText(empty, job.state === "active" ? "A compatible worker is producing this result." : "No result has been published yet."); $("#public-job-artifact").replaceChildren(empty); }
     const work = detail.work || {};
@@ -351,12 +373,6 @@ async function loadPublicSite() {
   const [catalog, explorer] = await Promise.all([publicApi("/api/services"), publicApi("/api/explorer/jobs?limit=100")]);
   servicesById.clear();
   catalog.services.forEach((service) => servicesById.set(service.id, service));
-  publicRequestService.replaceChildren(...catalog.services.map((service) => {
-    const option = document.createElement("option");
-    option.value = service.id;
-    setText(option, `${service.label} · ${service.provider}`);
-    return option;
-  }));
   publicJobs = explorer.jobs;
   renderPublicCapabilities();
   renderPublicExplorer();
@@ -423,7 +439,7 @@ function renderDashboard() {
     const service = serviceFor(job);
     const row = document.createElement("div"); row.className = "recent-row"; row.tabIndex = 0;
     const copy = document.createElement("div"); const strong = document.createElement("strong"); const small = document.createElement("small");
-    setText(strong, titleFor(job)); setText(small, `${service.label} · ${relativeTime(job.createdAt)}`); copy.append(strong, small);
+    setText(strong, titleFor(job)); setText(small, `${requirementsLabel(job)} · ${relativeTime(job.createdAt)}`); copy.append(strong, small);
     row.append(typeIcon(service), copy, stateBadge(job.state));
     row.addEventListener("click", () => openJobDetail(job.id));
     row.addEventListener("keydown", (event) => { if (event.key === "Enter") openJobDetail(job.id); });
@@ -434,13 +450,13 @@ function renderDashboard() {
 }
 
 function renderJobsTable() {
-  const visible = jobs.filter((job) => jobsFilter === "all" || serviceFor(job).kind === jobsFilter);
+  const visible = jobs.filter((job) => jobsFilter === "all" || requirementsFor(job).includes(jobsFilter));
   const body = $("#jobs-table-body");
   body.replaceChildren(...visible.map((job) => {
     const service = serviceFor(job);
     const row = document.createElement("tr");
     const idCell = document.createElement("td"); idCell.className = "job-id"; setText(idCell, shortId(job.id));
-    const kindCell = document.createElement("td"); const kind = document.createElement("span"); kind.className = "kind-pill"; setText(kind, `${kindSymbol(service.kind)} ${service.kind}`); kindCell.append(kind);
+    const kindCell = document.createElement("td"); const kind = document.createElement("span"); kind.className = "kind-pill"; setText(kind, `${kindSymbol(requirementsFor(job)[0])} ${requirementsLabel(job)}`); kindCell.append(kind);
     const description = document.createElement("td"); description.className = "job-description"; setText(description, titleFor(job)); description.title = job.prompt;
     const statusCell = document.createElement("td"); statusCell.append(stateBadge(job.state));
     const created = document.createElement("td"); setText(created, relativeTime(job.createdAt));
@@ -478,7 +494,7 @@ function renderInbox() {
     const service = serviceFor(job);
     const card = document.createElement("article"); card.className = "inbox-card";
     const id = document.createElement("span"); id.className = "inbox-card-id"; setText(id, shortId(job.id));
-    const copy = document.createElement("div"); const heading = document.createElement("h3"); const description = document.createElement("p"); setText(heading, `${service.label} · ${stateLabel(job.state)}`); setText(description, titleFor(job)); copy.append(heading, description);
+    const copy = document.createElement("div"); const heading = document.createElement("h3"); const description = document.createElement("p"); setText(heading, `${requirementsLabel(job)} required · ${stateLabel(job.state)}`); setText(description, titleFor(job)); copy.append(heading, description);
     const meta = document.createElement("div"); meta.className = "inbox-card-meta"; const time = document.createElement("time"); setText(time, relativeTime(job.updatedAt || job.createdAt)); const view = document.createElement("button"); view.type = "button"; setText(view, job.output ? "View Result" : "View"); view.addEventListener("click", () => openJobDetail(job.id)); meta.append(time, view);
     card.append(id, copy, meta); return card;
   }));
@@ -488,7 +504,7 @@ function renderInbox() {
 function renderLogs() {
   $("#logs-list").replaceChildren(...jobs.flatMap((job) => {
     const service = serviceFor(job);
-    const events = [{ at: job.createdAt, event: "JOB CREATED", detail: `${service.label} request submitted` }];
+    const events = [{ at: job.createdAt, event: "JOB CREATED", detail: `${requirementsLabel(job)} requirements inferred automatically` }];
     if (job.state === "active") events.unshift({ at: job.updatedAt, event: "LEASE ACTIVE", detail: "A compatible worker is processing the request" });
     if (job.state === "succeeded") events.unshift({ at: job.updatedAt, event: "RESULT READY", detail: "Worker result returned to the private inbox" });
     if (["failed", "cancelled"].includes(job.state)) events.unshift({ at: job.updatedAt, event: stateLabel(job.state).toUpperCase(), detail: "The request closed without a completed result" });
@@ -514,8 +530,8 @@ function openJobDetail(id, push = true) {
   $("#detail-state").replaceChildren(stateBadge(job.state));
   setText($("#detail-title"), `Job ${shortId(job.id)}`);
   setText($("#detail-subtitle"), titleFor(job));
-  setText($("#detail-type"), service.kind.toUpperCase());
-  setText($("#detail-provider"), service.provider);
+  setText($("#detail-type"), requirementsLabel(job).toUpperCase());
+  setText($("#detail-provider"), "Automatic worker matching");
   setText($("#detail-created"), formatDate(job.createdAt));
   setText($("#detail-status"), stateLabel(job.state));
   setText($("#detail-prompt"), job.prompt);
@@ -529,14 +545,7 @@ function openJobDetail(id, push = true) {
 async function loadServices() {
   const data = await api("/api/services");
   servicesById.clear();
-  const groups = new Map();
-  data.services.forEach((service) => { servicesById.set(service.id, service); if (!groups.has(service.kind)) groups.set(service.kind, []); groups.get(service.kind).push(service); });
-  const labels = { text: "TEXT & CHAT", image: "IMAGE", video: "VIDEO" };
-  serviceId.replaceChildren(...["text", "image", "video"].map((kind) => {
-    const group = document.createElement("optgroup"); group.label = labels[kind];
-    (groups.get(kind) || []).forEach((service) => { const option = document.createElement("option"); option.value = service.id; setText(option, `${service.label} · ${service.provider}`); group.append(option); });
-    return group;
-  }));
+  data.services.forEach((service) => servicesById.set(service.id, service));
 }
 
 async function loadJobs() {
@@ -609,7 +618,6 @@ publicRequestForm.addEventListener("submit", async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: publicRequestPrompt.value,
-        serviceId: publicRequestService.value,
         isPublic: publicRequestPublish.checked
       })
     });
@@ -634,7 +642,7 @@ accessForm.addEventListener("submit", async (event) => {
 jobForm.addEventListener("submit", async (event) => {
   event.preventDefault(); submitJob.disabled = true; setText(jobError, "");
   try {
-    await api("/api/jobs", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ prompt: prompt.value, serviceId: serviceId.value, isPublic: publishJob.checked }) });
+    await api("/api/jobs", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ prompt: prompt.value, isPublic: publishJob.checked }) });
     prompt.value = ""; publishJob.checked = false; setText(promptCount, "0 / 8000"); await loadJobs(); navigate("inbox");
   } catch (error) { setText(jobError, error.message); }
   finally { submitJob.disabled = false; }

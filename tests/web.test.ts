@@ -45,7 +45,9 @@ describe("BNB AI Network web application", () => {
     expect(html).toContain('data-route="logs"');
     expect(html).toContain('id="job-detail-view"');
     expect(html).toContain('id="job-form"');
-    expect(html).toContain('id="service-id"');
+    expect(html).not.toContain('id="service-id"');
+    expect(html).not.toContain('id="public-request-service"');
+    expect(html).toContain("Requirements are inferred automatically");
     expect(html).toContain('id="jobs-table-body"');
     expect(html).toContain('id="inbox-list"');
     expect(html).not.toContain("user-secret");
@@ -110,7 +112,9 @@ describe("BNB AI Network web application", () => {
     expect(source).toContain("/api/explorer/jobs/");
     expect(source).toContain("isPublic");
     expect(source).toContain("/api/services");
-    expect(source).toContain("serviceId");
+    expect(source).toContain("requirementsFor");
+    expect(source).not.toContain("serviceId: publicRequestService.value");
+    expect(source).not.toContain("serviceId: serviceId.value");
     expect(source).toContain("document.createElement(\"img\")");
     expect(source).toContain("document.createElement(\"video\")");
     expect(source).toContain("Authorization");

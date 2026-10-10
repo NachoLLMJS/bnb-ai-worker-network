@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Attempt, Job, JobStore } from "./types.js";
-import { requireService } from "./service-catalog.js";
+import { firstServiceForKind, requireService, selectServicesForRequirements } from "./service-catalog.js";
+import { inferJobRequirements } from "./job-requirements.js";
 
 function hashToken(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -21,8 +22,8 @@ export class JobService {
   async createJob(input: { userId: string; prompt: string; serviceId?: string; idempotencyKey?: string; isPublic?: boolean; requesterTokenHash?: string | null }): Promise<Job> {
     const prompt = input.prompt.trim();
     if (!prompt || prompt.length > 8_000) throw new Error("prompt must contain 1 to 8000 characters");
-    const serviceId = input.serviceId ?? "text.ollama";
-    requireService(serviceId);
+    const requirements = inferJobRequirements(prompt);
+    const serviceId = firstServiceForKind(requirements[0] ?? "text").id;
     const now = this.now();
     return this.store.createJob({
       id: randomUUID(),
@@ -30,6 +31,7 @@ export class JobService {
       idempotencyKey: input.idempotencyKey ?? randomUUID(),
       prompt,
       serviceId,
+      requirements,
       state: "queued",
       output: null,
       isPublic: input.isPublic ?? false,
@@ -46,7 +48,6 @@ export class JobService {
     const job = await this.createJob({
       userId: `anonymous:${requesterTokenHash.slice(0, 24)}`,
       prompt: input.prompt,
-      serviceId: input.serviceId,
       isPublic: input.isPublic ?? false,
       requesterTokenHash
     });
@@ -89,13 +90,17 @@ export class JobService {
     const claimed = await this.store.claimNext({
       workerId,
       capabilities: approvedCapabilities,
+      capabilityKinds: [...new Set(approvedCapabilities.map((capability) => requireService(capability).kind))],
       acceptPublicRequests,
       attemptId: randomUUID(),
       leaseTokenHash: hashToken(leaseToken),
       leaseExpiresAt: new Date(now.getTime() + this.options.leaseSeconds * 1000),
       now
     });
-    return claimed ? { ...claimed, leaseToken } : null;
+    if (!claimed) return null;
+    const serviceIds = selectServicesForRequirements(claimed.job.requirements, approvedCapabilities);
+    if (!serviceIds) throw new Error("store leased a job without full modality coverage");
+    return { ...claimed, job: { ...claimed.job, serviceId: serviceIds[0] }, serviceIds, leaseToken };
   }
 
   async completeAttempt(input: { attemptId: string; workerId: string; leaseToken: string; output: string }): Promise<Job> {

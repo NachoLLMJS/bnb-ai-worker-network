@@ -3,7 +3,7 @@ import { generateWithAnthropic } from "../src/anthropic-adapter.js";
 import { generateWithDeepSeek } from "../src/deepseek-adapter.js";
 import { generateWithHiggsfield } from "../src/higgsfield-adapter.js";
 import { generateWithOpenAI } from "../src/openai-adapter.js";
-import { buildWorkerExecutor } from "../src/provider-registry.js";
+import { buildWorkerExecutor, executeSelectedServices } from "../src/provider-registry.js";
 import { generateWithCodexSubscription, subscriptionCliIsLoggedIn } from "../src/subscription-cli-adapter.js";
 
 describe("hosted text adapters", () => {
@@ -73,6 +73,21 @@ describe("subscription CLI adapters", () => {
 });
 
 describe("worker provider registry", () => {
+  it("executes every coordinator-selected service and returns composite output", async () => {
+    const run = vi.fn(async (serviceId: string) => `result:${serviceId}`);
+    const output = await executeSelectedServices({
+      id: "combined",
+      prompt: "write copy and create an image",
+      serviceId: "text.openai.sol",
+      serviceIds: ["text.openai.sol", "image.openai.gpt-image-2"]
+    }, run);
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(output)).toEqual({ services: [
+      { serviceId: "text.openai.sol", output: "result:text.openai.sol" },
+      { serviceId: "image.openai.gpt-image-2", output: "result:image.openai.gpt-image-2" }
+    ] });
+  });
+
   it("requires explicit capabilities and fails closed when a hosted credential is missing", () => {
     expect(() => buildWorkerExecutor({ WORKER_CAPABILITIES: "text.openai.sol" })).toThrow("OPENAI_API_KEY is required");
     expect(() => buildWorkerExecutor({ WORKER_CAPABILITIES: "text.deepseek.flash" })).toThrow("DEEPSEEK_API_KEY is required");

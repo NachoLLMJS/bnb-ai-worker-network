@@ -24,17 +24,61 @@ describe("JobService", () => {
     expect(completed.output).toContain("BNB Chain");
   });
 
-  it("only leases a job to a worker that advertises the requested service", async () => {
+  it("infers requirements and leases only to a worker covering every required modality", async () => {
     const store = new MemoryJobStore();
     const service = new JobService(store, { leaseSeconds: 60 });
     const job = await service.createJob({
       userId: "user-1",
-      prompt: "Create a cinematic moonlit forest",
-      serviceId: "image.openai.gpt-image-2"
+      prompt: "Write a caption and create a cinematic image of a moonlit forest"
     });
 
+    expect(job.requirements).toEqual(["text", "image"]);
     expect(await service.claimNext("text-worker", ["text.ollama"])).toBeNull();
-    const lease = await service.claimNext("image-worker", ["image.openai.gpt-image-2"]);
-    expect(lease?.job).toMatchObject({ id: job.id, serviceId: "image.openai.gpt-image-2" });
+    expect(await service.claimNext("image-worker", ["image.openai.gpt-image-2"])).toBeNull();
+
+    const lease = await service.claimNext("combined-worker", [
+      "image.higgsfield.nano-banana-2",
+      "text.openai.sol",
+      "image.openai.gpt-image-2",
+      "text.ollama"
+    ]);
+    expect(lease?.job.id).toBe(job.id);
+    expect(lease?.serviceIds).toEqual(["text.ollama", "image.openai.gpt-image-2"]);
+    expect(lease?.job.serviceId).toBe("text.ollama");
+  });
+
+  it("requires one worker to cover text, image, and video together", async () => {
+    const store = new MemoryJobStore();
+    const service = new JobService(store, { leaseSeconds: 60 });
+    const job = await service.createJob({
+      userId: "user-1",
+      prompt: "Write launch copy, create an image, and generate a short video"
+    });
+
+    expect(job.requirements).toEqual(["text", "image", "video"]);
+    expect(await service.claimNext("partial-worker", ["text.ollama", "image.openai.gpt-image-2"])).toBeNull();
+    const lease = await service.claimNext("complete-worker", [
+      "text.ollama",
+      "image.openai.gpt-image-2",
+      "video.higgsfield.kling-3-turbo"
+    ]);
+    expect(lease?.job.id).toBe(job.id);
+    expect(lease?.serviceIds).toEqual([
+      "text.ollama",
+      "image.openai.gpt-image-2",
+      "video.higgsfield.kling-3-turbo"
+    ]);
+  });
+
+  it("ignores legacy requester service selection and routes from the prompt", async () => {
+    const store = new MemoryJobStore();
+    const service = new JobService(store, { leaseSeconds: 60 });
+    const job = await service.createJob({
+      userId: "user-1",
+      prompt: "Generate a product image",
+      serviceId: "text.anthropic.fable"
+    });
+
+    expect(job).toMatchObject({ requirements: ["image"], serviceId: "image.openai.gpt-image-2" });
   });
 });

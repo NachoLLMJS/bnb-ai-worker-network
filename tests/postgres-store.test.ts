@@ -38,6 +38,41 @@ describe("PostgresJobStore", () => {
     await pool.end();
   });
 
+  it("migrates legacy rows by deriving durable requirements from the service prefix", async () => {
+    const db = newDb({ noAstCoverageCheck: true });
+    const pg = db.adapters.createPg();
+    const pool = new pg.Pool();
+    await pool.query(`CREATE TABLE jobs (
+      id text PRIMARY KEY, user_id text NOT NULL, idempotency_key text NOT NULL, prompt text NOT NULL,
+      service_id text NOT NULL, state text NOT NULL, output text, is_public boolean NOT NULL DEFAULT false,
+      requester_token_hash text, current_attempt_id text, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL,
+      UNIQUE (user_id, idempotency_key)
+    )`);
+    await pool.query(`INSERT INTO jobs VALUES
+      ('legacy-image','user-1','legacy-1','legacy image','image.openai.gpt-image-2','queued',NULL,false,NULL,NULL,NOW(),NOW())`);
+
+    const store = new PostgresJobStore(pool as never);
+    await store.initialize();
+    const migrated = await store.getJob("legacy-image");
+    expect(migrated?.requirements).toEqual(["image"]);
+    await pool.end();
+  });
+
+  it("claims a combined-modality job only when the worker covers every requirement", async () => {
+    const db = newDb();
+    const pg = db.adapters.createPg();
+    const pool = new pg.Pool();
+    const store = new PostgresJobStore(pool as never);
+    await store.initialize();
+    const service = new JobService(store, { leaseSeconds: 60 });
+    await service.createJob({ userId: "user-1", prompt: "Write a caption and generate an image", idempotencyKey: "combined-1" });
+
+    expect(await service.claimNext("text-only", ["text.ollama"])).toBeNull();
+    const claimed = await service.claimNext("combined", ["image.openai.gpt-image-2", "text.openai.sol"]);
+    expect(claimed?.serviceIds).toEqual(["text.openai.sol", "image.openai.gpt-image-2"]);
+    await pool.end();
+  });
+
   it("requeues a job when its old lease has expired", async () => {
     const db = newDb();
     const pg = db.adapters.createPg();

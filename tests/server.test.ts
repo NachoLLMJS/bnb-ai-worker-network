@@ -66,7 +66,7 @@ describe("HTTP API", () => {
     const created = await server.inject({
       method: "POST",
       url: "/api/requests",
-      payload: { prompt: "Summarize this public request", serviceId: "text.ollama" }
+      payload: { prompt: "Summarize this public request" }
     });
     expect(created.statusCode).toBe(201);
     expect(created.json().job).toMatchObject({ state: "queued", isPublic: false });
@@ -158,7 +158,7 @@ describe("HTTP API", () => {
         method: "POST",
         url: "/api/jobs",
         headers: { authorization: "Bearer user-secret", "idempotency-key": key },
-        payload: { prompt, serviceId: "text.ollama", isPublic }
+        payload: { prompt, isPublic }
       });
       expect(created.statusCode).toBe(201);
       if (!isPublic) createdPrivateId = created.json().id;
@@ -218,7 +218,7 @@ describe("HTTP API", () => {
       store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
     });
     servers.push(server);
-    const created = await server.inject({ method: "POST", url: "/api/jobs", headers: { authorization: "Bearer user-secret", "idempotency-key": "public-image" }, payload: { prompt: "Generate a map", serviceId: "image.openai.gpt-image-2", isPublic: true } });
+    const created = await server.inject({ method: "POST", url: "/api/jobs", headers: { authorization: "Bearer user-secret", "idempotency-key": "public-image" }, payload: { prompt: "Generate a map image", isPublic: true } });
     const claim = await server.inject({ method: "POST", url: "/api/worker/claim", headers: { authorization: "Bearer worker-secret", "x-worker-id": "image-worker" }, payload: { capabilities: ["image.openai.gpt-image-2"] } });
     const artifact = `data:image/webp;base64,${"a".repeat(150_000)}`;
     const completed = await server.inject({ method: "POST", url: `/api/worker/attempts/${claim.json().attempt.id}/complete`, headers: { authorization: "Bearer worker-secret", "x-worker-id": "image-worker" }, payload: { leaseToken: claim.json().leaseToken, output: artifact } });
@@ -229,7 +229,7 @@ describe("HTTP API", () => {
     expect(detail.json().job.output).toBe(artifact);
   });
 
-  it("publishes the service catalog and routes jobs only to matching workers", async () => {
+  it("infers requirements and returns coordinator-selected services to matching workers", async () => {
     const server = await buildServer({
       store: new MemoryJobStore(),
       userToken: "user-secret",
@@ -247,10 +247,10 @@ describe("HTTP API", () => {
     const created = await server.inject({
       method: "POST",
       url: "/api/jobs",
-      headers: { authorization: "Bearer user-secret", "idempotency-key": "fable-job" },
-      payload: { prompt: "Write dialogue", serviceId: "text.anthropic.fable" }
+      headers: { authorization: "Bearer user-secret", "idempotency-key": "combined-job" },
+      payload: { prompt: "Write a caption and generate an image" }
     });
-    expect(created.json()).toMatchObject({ serviceId: "text.anthropic.fable" });
+    expect(created.json()).toMatchObject({ requirements: ["text", "image"], serviceId: "text.ollama" });
 
     const wrongWorker = await server.inject({
       method: "POST",
@@ -260,13 +260,31 @@ describe("HTTP API", () => {
     });
     expect(wrongWorker.statusCode).toBe(204);
 
-    const fableWorker = await server.inject({
+    const combinedWorker = await server.inject({
       method: "POST",
       url: "/api/worker/claim",
-      headers: { authorization: "Bearer worker-secret", "x-worker-id": "fable-worker" },
-      payload: { capabilities: ["text.anthropic.fable"] }
+      headers: { authorization: "Bearer worker-secret", "x-worker-id": "combined-worker" },
+      payload: { capabilities: ["image.higgsfield.nano-banana-2", "text.openai.sol", "image.openai.gpt-image-2"] }
     });
-    expect(fableWorker.statusCode).toBe(200);
-    expect(fableWorker.json().job.serviceId).toBe("text.anthropic.fable");
+    expect(combinedWorker.statusCode).toBe(200);
+    expect(combinedWorker.json()).toMatchObject({
+      serviceIds: ["text.openai.sol", "image.openai.gpt-image-2"],
+      job: { serviceId: "text.openai.sol", requirements: ["text", "image"] }
+    });
+  });
+
+  it("rejects requester-selected services on public and private request APIs", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
+    });
+    servers.push(server);
+
+    const publicResponse = await server.inject({ method: "POST", url: "/api/requests", payload: { prompt: "Write a greeting", serviceId: "text.ollama" } });
+    expect(publicResponse.statusCode).toBe(400);
+    const privateResponse = await server.inject({
+      method: "POST", url: "/api/jobs", headers: { authorization: "Bearer user-secret", "idempotency-key": "no-selection" },
+      payload: { prompt: "Write a greeting", serviceId: "text.ollama" }
+    });
+    expect(privateResponse.statusCode).toBe(400);
   });
 });

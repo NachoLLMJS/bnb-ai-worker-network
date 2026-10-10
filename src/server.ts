@@ -3,7 +3,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import { JobService } from "./job-service.js";
 import type { JobStore } from "./types.js";
-import { getService, listServices } from "./service-catalog.js";
+import { listServices } from "./service-catalog.js";
 import type { WorkerCredentialStore } from "./worker-credential-store.js";
 
 function tokenMatches(header: string | undefined, expected: string): boolean {
@@ -28,6 +28,7 @@ function requesterJob(job: Awaited<ReturnType<JobService["createJob"]>>) {
     id: job.id,
     prompt: job.prompt,
     serviceId: job.serviceId,
+    requirements: job.requirements,
     state: job.state,
     output: job.output,
     isPublic: job.isPublic,
@@ -115,8 +116,8 @@ export async function buildServer(options: {
     if (!query.success) return reply.code(400).send({ error: "invalid_request" });
     const jobs = await service.listPublicJobs(query.data.limit);
     return {
-      jobs: jobs.map(({ id, prompt, serviceId, state, createdAt, updatedAt }) => ({
-        id, prompt, serviceId, state, output: null, createdAt, updatedAt
+      jobs: jobs.map(({ id, prompt, serviceId, requirements, state, createdAt, updatedAt }) => ({
+        id, prompt, serviceId, requirements, state, output: null, createdAt, updatedAt
       }))
     };
   });
@@ -132,6 +133,7 @@ export async function buildServer(options: {
         id: job.id,
         prompt: job.prompt,
         serviceId: job.serviceId,
+        requirements: job.requirements,
         state: job.state,
         output: job.output,
         createdAt: job.createdAt,
@@ -147,11 +149,9 @@ export async function buildServer(options: {
   app.post("/api/requests", { preHandler: publicRequestRateLimit }, async (request, reply) => {
     const parsed = z.object({
       prompt: z.string().min(1).max(8_000),
-      serviceId: z.string().min(3).max(100).default("text.ollama"),
       isPublic: z.boolean().default(false)
-    }).safeParse(request.body);
+    }).strict().safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request", details: parsed.error.issues });
-    if (!getService(parsed.data.serviceId)) return reply.code(400).send({ error: "unsupported_service" });
     const created = await service.createPublicRequest(parsed.data);
     return reply.code(201).send({ job: requesterJob(created.job), requesterToken: created.requesterToken });
   });
@@ -169,16 +169,14 @@ export async function buildServer(options: {
   app.post("/api/jobs", { preHandler: userAuth }, async (request, reply) => {
     const parsed = z.object({
       prompt: z.string().min(1).max(8_000),
-      serviceId: z.string().min(3).max(100).default("text.ollama"),
       isPublic: z.boolean().default(false)
-    }).safeParse(request.body);
+    }).strict().safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request", details: parsed.error.issues });
-    if (!getService(parsed.data.serviceId)) return reply.code(400).send({ error: "unsupported_service" });
     const idempotencyKey = request.headers["idempotency-key"];
     if (typeof idempotencyKey !== "string" || idempotencyKey.length < 3 || idempotencyKey.length > 128) {
       return reply.code(400).send({ error: "invalid_idempotency_key" });
     }
-    const job = await service.createJob({ userId: "bootstrap-user", prompt: parsed.data.prompt, serviceId: parsed.data.serviceId, isPublic: parsed.data.isPublic, idempotencyKey });
+    const job = await service.createJob({ userId: "bootstrap-user", prompt: parsed.data.prompt, isPublic: parsed.data.isPublic, idempotencyKey });
     return reply.code(201).send(requesterJob(job));
   });
 
@@ -198,9 +196,11 @@ export async function buildServer(options: {
         id: claimed.job.id,
         prompt: claimed.job.prompt,
         serviceId: claimed.job.serviceId,
+        requirements: claimed.job.requirements,
         state: claimed.job.state,
         createdAt: claimed.job.createdAt
       },
+      serviceIds: claimed.serviceIds,
       attempt: {
         id: claimed.attempt.id,
         jobId: claimed.attempt.jobId,

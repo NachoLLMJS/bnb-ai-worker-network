@@ -7,6 +7,7 @@ export interface Job {
   idempotencyKey: string;
   prompt: string;
   serviceId: string;
+  requirements: import("./service-catalog.js").ServiceKind[];
   state: JobState;
   output: string | null;
   isPublic: boolean;
@@ -38,7 +39,7 @@ export interface JobStore {
   listPublicJobs(limit: number): Promise<Job[]>;
   getPublicJob(jobId: string): Promise<Job | null>;
   getJob(jobId: string): Promise<Job | null>;
-  claimNext(input: { workerId: string; capabilities: string[]; acceptPublicRequests: boolean; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null>;
+  claimNext(input: { workerId: string; capabilities: string[]; capabilityKinds: import("./service-catalog.js").ServiceKind[]; acceptPublicRequests: boolean; attemptId: string; leaseTokenHash: string; leaseExpiresAt: Date; now: Date }): Promise<ClaimedAttempt | null>;
   getAttempt(attemptId: string): Promise<Attempt | null>;
   completeAttempt(input: { attemptId: string; output: string; completedAt: Date }): Promise<Job>;
 }

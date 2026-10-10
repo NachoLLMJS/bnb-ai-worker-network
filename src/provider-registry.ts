@@ -12,7 +12,7 @@ import {
 } from "./subscription-cli-adapter.js";
 
 type Env = Record<string, string | undefined>;
-type WorkerJob = { id: string; prompt: string; serviceId: string };
+type WorkerJob = { id: string; prompt: string; serviceId: string; serviceIds?: string[] };
 type Dependencies = { codexRunner?: CliRunner; subscriptionProbe?: SubscriptionProbe };
 
 function required(env: Env, name: string): string {
@@ -38,6 +38,13 @@ function higgsfieldArgs(serviceId: string): string[] {
     default:
       throw new Error("unsupported Higgsfield service");
   }
+}
+
+export async function executeSelectedServices(job: WorkerJob, executeOne: (serviceId: string) => Promise<string>): Promise<string> {
+  const selected = [...new Set(job.serviceIds?.length ? job.serviceIds : [job.serviceId])];
+  if (selected.length === 1) return executeOne(selected[0]!);
+  const services = await Promise.all(selected.map(async (serviceId) => ({ serviceId, output: await executeOne(serviceId) })));
+  return JSON.stringify({ services });
 }
 
 export function buildWorkerExecutor(env: Env = process.env, dependencies: Dependencies = {}) {
@@ -68,9 +75,9 @@ export function buildWorkerExecutor(env: Env = process.env, dependencies: Depend
     }
   }
 
-  async function execute(job: WorkerJob): Promise<string> {
-    if (!capabilities.includes(job.serviceId)) throw new Error("worker received an unapproved service");
-    const service = requireService(job.serviceId);
+  async function executeOne(job: WorkerJob, serviceId: string): Promise<string> {
+    if (!capabilities.includes(serviceId)) throw new Error("worker received an unapproved service");
+    const service = requireService(serviceId);
     switch (service.executor) {
       case "ollama":
         return generateWithOllama({
@@ -109,17 +116,21 @@ export function buildWorkerExecutor(env: Env = process.env, dependencies: Depend
           runner: dependencies.codexRunner
         });
       case "higgsfield": {
-        const modelId = job.serviceId === "video.higgsfield.genjutsu"
+        const modelId = serviceId === "video.higgsfield.genjutsu"
           ? required(env, "HIGGSFIELD_GENJUTSU_MODEL_ID")
           : service.modelId!;
         return generateWithHiggsfield({
           modelId,
           prompt: job.prompt,
-          args: higgsfieldArgs(job.serviceId),
+          args: higgsfieldArgs(serviceId),
           command: env.HIGGSFIELD_COMMAND?.trim() || "higgsfield"
         });
       }
     }
+  }
+
+  async function execute(job: WorkerJob): Promise<string> {
+    return executeSelectedServices(job, (serviceId) => executeOne(job, serviceId));
   }
 
   return { capabilities, execute };
