@@ -13,7 +13,7 @@ Production: `https://api-production-cc9f.up.railway.app`
 - Atomic leases with expiry and stale-result rejection.
 - Friend-operated outbound-only worker agent.
 - Anonymous jobs can be claimed only by workers that explicitly enable `ACCEPT_PUBLIC_REQUESTS=true`.
-- Capability-aware workers for Ollama, OpenAI API, Anthropic API, DeepSeek, approved Higgsfield media services, Codex with ChatGPT login, and Claude Code with Claude login.
+- Capability-aware workers for Ollama, OpenAI API, Anthropic API keys, DeepSeek, approved Higgsfield media services, and Codex with ChatGPT login. Claude consumer subscriptions are not used as worker credentials.
 - Public jobs are explicit opt-in; private is the default.
 - No token, payment, NFT, wallet, arbitrary user code, or fabricated worker telemetry.
 

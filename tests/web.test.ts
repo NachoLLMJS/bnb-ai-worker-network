@@ -79,9 +79,9 @@ describe("BNB AI Network web application", () => {
     expect(html).toContain('/assets/logos/higgsfield.png');
     expect(html).toContain('/assets/logos/deepseek.svg');
     expect(html).toContain('DeepSeek');
-    expect(html).toContain('Codex and Claude Code subscriptions');
+    expect(html).toContain('Anthropic jobs require <code>ANTHROPIC_API_KEY</code>');
     expect(html).toContain('text.openai.codex');
-    expect(html).toContain('text.anthropic.claude-code');
+    expect(html).not.toContain('text.anthropic.claude-code');
     expect(html).toContain("Free private beta");
     expect(html).not.toContain("Connect Wallet");
     expect(html).not.toContain("Earn on BNB");
