@@ -44,4 +44,31 @@ describe("static web registration", () => {
     expect(deepseek.headers["content-type"]).toContain("image/svg+xml");
     expect(deepseek.payload).toContain("<svg");
   });
+
+  it("serves the self-contained 3D intro and its nested modules", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(),
+      userToken: "user-secret",
+      adminToken: "admin-secret",
+      workerToken: "worker-secret",
+      leaseSeconds: 60
+    });
+    servers.push(server);
+    await registerWeb(server, join(import.meta.dirname, "..", "public"));
+
+    const intro = await server.inject({ method: "GET", url: "/intro/index.html?loader=1" });
+    expect(intro.statusCode).toBe(200);
+    expect(intro.headers["content-type"]).toContain("text/html");
+    expect(intro.body).toContain("BNB Compute 3D intro");
+    expect(intro.body).not.toContain("BNB AI NETWORK");
+
+    const module = await server.inject({ method: "GET", url: "/intro/main.js" });
+    expect(module.statusCode).toBe(200);
+    expect(module.headers["content-type"]).toContain("javascript");
+    expect(module.body).toContain("sxg-loader-complete");
+
+    const three = await server.inject({ method: "GET", url: "/intro/vendor/three/three.module.js" });
+    expect(three.statusCode).toBe(200);
+    expect(three.body).toContain("REVISION");
+  });
 });

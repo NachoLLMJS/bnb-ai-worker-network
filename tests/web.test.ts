@@ -120,4 +120,19 @@ describe("BNB AI Network web application", () => {
     expect(source).not.toContain("Connect Wallet");
     expect(source).not.toContain("Total Workers: 156");
   });
+
+  it("ships the text-free 3D intro without localhost dependencies or humanoids", async () => {
+    const [html, source, intro] = await Promise.all([
+      readFile(join(root, "public", "index.html"), "utf8"),
+      readFile(join(root, "public", "intro", "main.js"), "utf8"),
+      readFile(join(root, "public", "intro", "index.html"), "utf8"),
+    ]);
+    expect(html).toContain('/intro/index.html?loader=1&amp;v=5');
+    expect(html).not.toContain("127.0.0.1:4173");
+    expect(source).toContain("const endDepth=2.98");
+    expect(source).toContain("loaderMode?{update(){}}:createMaintenanceCrew");
+    expect(source).toContain("if(loaderMode){const mesh=new THREE.Object3D()");
+    expect(intro).toContain('classList.add(\'loader-mode\')');
+    expect(intro).toContain('"/intro/vendor/three/three.module.js"');
+  });
 });

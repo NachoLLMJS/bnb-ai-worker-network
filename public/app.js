@@ -17,6 +17,23 @@ let publicRequestPoller;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+const introLoader = $("#intro-loader");
+if (introLoader) {
+  const introFrame = introLoader.querySelector("iframe");
+  let loaderDismissed = false;
+  const dismissLoader = () => {
+    if (loaderDismissed) return;
+    loaderDismissed = true;
+    introLoader.classList.add("intro-loader-exit");
+    window.setTimeout(() => introLoader.remove(), 950);
+  };
+  window.addEventListener("message", (event) => {
+    if (event.origin !== location.origin || event.source !== introFrame?.contentWindow) return;
+    if (event.data?.type === "sxg-loader-complete") dismissLoader();
+  });
+  window.setTimeout(dismissLoader, 14000);
+}
 const landingView = $("#landing-view");
 const appShell = $("#app-shell");
 const accessOverlay = $("#access-overlay");
