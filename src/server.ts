@@ -4,6 +4,7 @@ import { z } from "zod";
 import { JobService } from "./job-service.js";
 import type { JobStore } from "./types.js";
 import { getService, listServices } from "./service-catalog.js";
+import type { WorkerCredentialStore } from "./worker-credential-store.js";
 
 function tokenMatches(header: string | undefined, expected: string): boolean {
   if (!header?.startsWith("Bearer ") || !expected) return false;
@@ -16,6 +17,10 @@ function requireToken(expected: string) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     if (!tokenMatches(request.headers.authorization, expected)) return reply.code(401).send({ error: "unauthorized" });
   };
+}
+
+function bearerToken(header: string | undefined): string | null {
+  return header?.startsWith("Bearer ") ? header.slice(7) : null;
 }
 
 function requesterJob(job: Awaited<ReturnType<JobService["createJob"]>>) {
@@ -36,12 +41,24 @@ export async function buildServer(options: {
   userToken: string;
   adminToken: string;
   workerToken: string;
+  legacyWorkerTokenEnabled: boolean;
+  workerCredentials?: WorkerCredentialStore;
   leaseSeconds: number;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 16_000_000, trustProxy: (_address: string, hop: number) => hop === 0 });
   const service = new JobService(options.store, { leaseSeconds: options.leaseSeconds });
   const userAuth = requireToken(options.userToken);
-  const workerAuth = requireToken(options.workerToken);
+  const adminAuth = requireToken(options.adminToken);
+  const workerAuth = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (options.legacyWorkerTokenEnabled && tokenMatches(request.headers.authorization, options.workerToken)) return;
+    const token = bearerToken(request.headers.authorization);
+    if (!token) return reply.code(401).send({ error: "unauthorized" });
+    const workerId = request.headers["x-worker-id"];
+    if (typeof workerId !== "string" || !/^[a-zA-Z0-9_-]{3,64}$/.test(workerId)) return reply.code(400).send({ error: "invalid_worker_id" });
+    if (!options.workerCredentials || !await options.workerCredentials.authenticate(token, workerId)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+  };
   const publicRequests = new Map<string, { count: number; resetAt: number }>();
 
   const publicRequestRateLimit = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -58,6 +75,40 @@ export async function buildServer(options: {
   app.get("/health/live", async () => ({ ok: true }));
 
   app.get("/api/services", async () => ({ services: listServices() }));
+
+  app.put("/api/admin/worker-credentials/:issuanceId", { preHandler: adminAuth }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!options.workerCredentials) return reply.code(503).send({ error: "worker_credentials_unavailable" });
+    const params = z.object({ issuanceId: z.string().uuid() }).safeParse(request.params);
+    const body = z.object({
+      label: z.string().trim().min(1).max(80),
+      workerId: z.string().regex(/^[a-zA-Z0-9_-]{3,64}$/),
+      token: z.string().regex(/^bncw_[A-Za-z0-9_-]{43}$/)
+    }).safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      const registered = await options.workerCredentials.register({ issuanceId: params.data.issuanceId, ...body.data });
+      return reply.code(registered.created ? 201 : 200).send({ credential: registered.credential });
+    } catch (error) {
+      if (error instanceof Error && /conflict|revoked/.test(error.message)) return reply.code(409).send({ error: error.message });
+      throw error;
+    }
+  });
+
+  app.get("/api/admin/worker-credentials", { preHandler: adminAuth }, async (_request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!options.workerCredentials) return reply.code(503).send({ error: "worker_credentials_unavailable" });
+    return { credentials: await options.workerCredentials.list() };
+  });
+
+  app.post("/api/admin/worker-credentials/:credentialId/revoke", { preHandler: adminAuth }, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!options.workerCredentials) return reply.code(503).send({ error: "worker_credentials_unavailable" });
+    const parsed = z.object({ credentialId: z.string().uuid() }).safeParse(request.params);
+    if (!parsed.success) return reply.code(404).send({ error: "not_found" });
+    const credential = await options.workerCredentials.revoke(parsed.data.credentialId);
+    return credential ? { credential } : reply.code(404).send({ error: "not_found" });
+  });
 
   app.get("/api/explorer/jobs", async (request, reply) => {
     const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).safeParse(request.query);

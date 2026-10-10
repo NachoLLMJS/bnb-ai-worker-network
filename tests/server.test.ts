@@ -12,6 +12,7 @@ describe("HTTP API", () => {
       userToken: "user-secret",
       adminToken: "admin-secret",
       workerToken: "worker-secret",
+      legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
     });
     servers.push(server);
@@ -57,6 +58,7 @@ describe("HTTP API", () => {
       userToken: "user-secret",
       adminToken: "admin-secret",
       workerToken: "worker-secret",
+      legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
     });
     servers.push(server);
@@ -119,6 +121,7 @@ describe("HTTP API", () => {
       userToken: "user-secret",
       adminToken: "admin-secret",
       workerToken: "worker-secret",
+      legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
     });
     servers.push(server);
@@ -138,6 +141,7 @@ describe("HTTP API", () => {
       userToken: "user-secret",
       adminToken: "admin-secret",
       workerToken: "worker-secret",
+      legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
     });
     servers.push(server);
@@ -211,7 +215,7 @@ describe("HTTP API", () => {
 
   it("accepts a published image artifact while keeping large data URLs out of explorer lists", async () => {
     const server = await buildServer({
-      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", workerToken: "worker-secret", leaseSeconds: 60
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
     });
     servers.push(server);
     const created = await server.inject({ method: "POST", url: "/api/jobs", headers: { authorization: "Bearer user-secret", "idempotency-key": "public-image" }, payload: { prompt: "Generate a map", serviceId: "image.openai.gpt-image-2", isPublic: true } });
@@ -231,6 +235,7 @@ describe("HTTP API", () => {
       userToken: "user-secret",
       adminToken: "admin-secret",
       workerToken: "worker-secret",
+      legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
     });
     servers.push(server);

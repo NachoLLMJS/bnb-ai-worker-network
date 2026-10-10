@@ -5,4 +5,5 @@ dist/
 !.env.example
 coverage/
 *.log
+worker-credentials*.json
 .railway/

@@ -14,6 +14,7 @@ describe("static web registration", () => {
       userToken: "user-secret",
       adminToken: "admin-secret",
       workerToken: "worker-secret",
+      legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
     });
     servers.push(server);
@@ -29,6 +30,7 @@ describe("static web registration", () => {
       userToken: "user-secret",
       adminToken: "admin-secret",
       workerToken: "worker-secret",
+      legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
     });
     servers.push(server);
@@ -51,6 +53,7 @@ describe("static web registration", () => {
       userToken: "user-secret",
       adminToken: "admin-secret",
       workerToken: "worker-secret",
+      legacyWorkerTokenEnabled: true,
       leaseSeconds: 60
     });
     servers.push(server);
