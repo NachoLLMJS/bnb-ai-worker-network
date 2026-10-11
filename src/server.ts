@@ -1,10 +1,13 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import type { ServerResponse } from "node:http";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import { JobService } from "./job-service.js";
 import type { JobStore } from "./types.js";
 import { listServices } from "./service-catalog.js";
 import type { WorkerCredentialStore } from "./worker-credential-store.js";
+
+const MAX_PUBLIC_JOB_STREAMS = 500;
 
 function tokenMatches(header: string | undefined, expected: string): boolean {
   if (!header?.startsWith("Bearer ") || !expected) return false;
@@ -77,6 +80,26 @@ export async function buildServer(options: {
   };
   const publicRequests = new Map<string, { count: number; resetAt: number }>();
   const workerEnrollments = new Map<string, { count: number; resetAt: number }>();
+  const publicJobStreams = new Set<ServerResponse>();
+  const closePublicJobStream = (stream: ServerResponse) => {
+    publicJobStreams.delete(stream);
+    if (!stream.destroyed && !stream.writableEnded) stream.end();
+  };
+  const publishPublicJobChange = (job: { id: string; state: string; isPublic: boolean }) => {
+    if (!job.isPublic) return;
+    const message = `event: jobs\ndata: ${JSON.stringify({ jobId: job.id, state: job.state })}\n\n`;
+    for (const stream of publicJobStreams) {
+      if (stream.destroyed || stream.writableEnded) publicJobStreams.delete(stream);
+      else if (!stream.write(message)) {
+        publicJobStreams.delete(stream);
+        stream.destroy();
+      }
+    }
+  };
+  app.addHook("preClose", async () => {
+    for (const stream of publicJobStreams) closePublicJobStream(stream);
+    publicJobStreams.clear();
+  });
 
   const publicRequestRateLimit = async (request: FastifyRequest, reply: FastifyReply) => {
     const now = Date.now();
@@ -173,6 +196,36 @@ export async function buildServer(options: {
     };
   });
 
+  app.get("/api/explorer/events", async (request, reply) => {
+    if (publicJobStreams.size >= MAX_PUBLIC_JOB_STREAMS) return reply.code(503).send({ error: "stream_capacity" });
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no"
+    });
+    reply.raw.write("retry: 3000\n: connected\n\n");
+    publicJobStreams.add(reply.raw);
+    let closed = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      publicJobStreams.delete(reply.raw);
+    };
+    const heartbeat = setInterval(() => {
+      if (reply.raw.destroyed || reply.raw.writableEnded) cleanup();
+      else if (!reply.raw.write(": heartbeat\n\n")) {
+        cleanup();
+        reply.raw.destroy();
+      }
+    }, 20_000);
+    reply.raw.once("close", cleanup);
+    reply.raw.once("error", cleanup);
+    request.raw.once("aborted", cleanup);
+  });
+
   app.get("/api/explorer/jobs/:jobId", async (request, reply) => {
     const params = z.object({ jobId: z.string().uuid() }).safeParse(request.params);
     if (!params.success) return reply.code(404).send({ error: "not_found" });
@@ -204,6 +257,7 @@ export async function buildServer(options: {
     }).strict().safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request", details: parsed.error.issues });
     const created = await service.createPublicRequest(parsed.data);
+    publishPublicJobChange(created.job);
     return reply.code(201).send({ job: requesterJob(created.job), requesterToken: created.requesterToken });
   });
 
@@ -228,6 +282,7 @@ export async function buildServer(options: {
       return reply.code(400).send({ error: "invalid_idempotency_key" });
     }
     const job = await service.createJob({ userId: "bootstrap-user", prompt: parsed.data.prompt, isPublic: parsed.data.isPublic, idempotencyKey });
+    publishPublicJobChange(job);
     return reply.code(201).send(requesterJob(job));
   });
 
@@ -242,6 +297,7 @@ export async function buildServer(options: {
     }).safeParse(request.body ?? {});
     if (!body.success) return reply.code(400).send({ error: "invalid_capabilities" });
     const claimed = await service.claimNext(workerId, body.data.capabilities, body.data.acceptPublicRequests);
+    if (claimed) publishPublicJobChange(claimed.job);
     return claimed ? reply.send({
       job: {
         id: claimed.job.id,
@@ -269,7 +325,9 @@ export async function buildServer(options: {
     const body = z.object({ leaseToken: z.string().min(20), output: z.string().min(1).max(15_000_000) }).safeParse(request.body);
     if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_request" });
     try {
-      return requesterJob(await service.completeAttempt({ attemptId: params.data.attemptId, workerId, ...body.data }));
+      const job = await service.completeAttempt({ attemptId: params.data.attemptId, workerId, ...body.data });
+      publishPublicJobChange(job);
+      return requesterJob(job);
     } catch (error) {
       return reply.code(409).send({ error: error instanceof Error ? error.message : "completion_failed" });
     }

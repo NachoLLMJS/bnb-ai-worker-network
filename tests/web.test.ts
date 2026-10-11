@@ -103,6 +103,11 @@ describe("BNB AI Network web application", () => {
     expect(source).toContain("openJobDetail(selectedJobId, false)");
     expect(source).toContain("/api/jobs");
     expect(source).toContain("/api/explorer/jobs");
+    expect(source).toContain('new EventSource("/api/explorer/events")');
+    expect(source).toContain('addEventListener("jobs"');
+    expect(source).toContain("refreshPublicJobs");
+    expect(source).toContain("PUBLIC_JOBS_RECONCILE_MS");
+    expect(source).toContain("publicDetailRequestSequence");
     expect(source).toContain('publicRequestApi("/api/requests"');
     expect(source).toContain('"x-request-token"');
     expect(source).toContain("PUBLIC_REQUEST_KEY");

@@ -1,5 +1,6 @@
 const TOKEN_KEY = "worker-relay-access";
 const PUBLIC_REQUEST_KEY = "bnb-compute-public-request";
+const PUBLIC_JOBS_RECONCILE_MS = 15_000;
 const validRoutes = new Set(["dashboard", "jobs", "workers", "submit", "inbox", "logs"]);
 const publicRoutes = new Set(["home", "explore", "job-detail", "network", "docs"]);
 const publicPaths = { home: "/", explore: "/explore", network: "/network", docs: "/docs" };
@@ -14,6 +15,11 @@ let inboxFilter = "open";
 let selectedJobId = null;
 let poller;
 let publicRequestPoller;
+let publicJobsReconcilePoller;
+let publicEvents;
+let publicRefreshInFlight = null;
+let publicRefreshAgain = false;
+let publicDetailRequestSequence = 0;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -270,29 +276,15 @@ function timelineItem(title, description, timestamp) {
   return item;
 }
 
-async function openPublicJobDetail(jobId, push = true) {
-  if (!jobId) { showPublicRoute("explore", push); return; }
-  currentPublicJobId = jobId;
-  clearInterval(poller);
-  appShell.hidden = true; landingView.hidden = false; accessOverlay.hidden = true;
-  $$("[data-public-view]").forEach((view) => { view.hidden = view.dataset.publicView !== "job-detail"; });
-  $$("[data-public-route]").forEach((control) => control.classList.toggle("active", control.dataset.publicRoute === "explore"));
-  if (push && location.pathname !== `/explore/jobs/${jobId}`) history.pushState({ publicJobId: jobId }, "", `/explore/jobs/${jobId}`);
-  setText($("#public-detail-id"), shortId(jobId));
-  setText($("#public-detail-title"), "Loading published job…");
-  $("#public-detail-state").replaceChildren();
-  setText($("#public-detail-prompt"), "");
-  const loading = document.createElement("div"); loading.className = "artifact-empty"; setText(loading, "Loading published result…");
-  $("#public-job-artifact").replaceChildren(loading);
-  $("#public-job-timeline").replaceChildren();
-  window.scrollTo({ top: 0, behavior: "instant" });
+async function refreshPublicJobDetail(jobId) {
+  const requestSequence = ++publicDetailRequestSequence;
   try {
     if (!servicesById.size) {
       const catalog = await publicApi("/api/services");
       catalog.services.forEach((service) => servicesById.set(service.id, service));
     }
     const detail = await publicApi(`/api/explorer/jobs/${jobId}`);
-    if (currentPublicJobId !== jobId) return;
+    if (currentPublicJobId !== jobId || requestSequence !== publicDetailRequestSequence) return;
     const job = detail.job;
     const service = serviceFor(job);
     setText($("#public-detail-icon"), kindSymbol(service.kind));
@@ -313,13 +305,32 @@ async function openPublicJobDetail(jobId, push = true) {
     if (!work.claimedAt && job.state !== "succeeded") steps.push(timelineItem("Awaiting compatible capacity", "The request remains available to workers advertising this capability.", null));
     $("#public-job-timeline").replaceChildren(...steps);
   } catch {
-    if (currentPublicJobId !== jobId) return;
+    if (currentPublicJobId !== jobId || requestSequence !== publicDetailRequestSequence) return;
     const error = document.createElement("div"); error.className = "public-detail-error";
     const strong = document.createElement("strong"); const text = document.createElement("p");
     setText(strong, "Published job not found"); setText(text, "This job is private, unavailable, or no longer published.");
     error.append(strong, text); $("#public-job-artifact").replaceChildren(error);
     setText($("#public-detail-title"), "Unavailable public job");
   }
+}
+
+async function openPublicJobDetail(jobId, push = true) {
+  if (!jobId) { showPublicRoute("explore", push); return; }
+  currentPublicJobId = jobId;
+  clearInterval(poller);
+  appShell.hidden = true; landingView.hidden = false; accessOverlay.hidden = true;
+  $$("[data-public-view]").forEach((view) => { view.hidden = view.dataset.publicView !== "job-detail"; });
+  $$("[data-public-route]").forEach((control) => control.classList.toggle("active", control.dataset.publicRoute === "explore"));
+  if (push && location.pathname !== `/explore/jobs/${jobId}`) history.pushState({ publicJobId: jobId }, "", `/explore/jobs/${jobId}`);
+  setText($("#public-detail-id"), shortId(jobId));
+  setText($("#public-detail-title"), "Loading published job…");
+  $("#public-detail-state").replaceChildren();
+  setText($("#public-detail-prompt"), "");
+  const loading = document.createElement("div"); loading.className = "artifact-empty"; setText(loading, "Loading published result…");
+  $("#public-job-artifact").replaceChildren(loading);
+  $("#public-job-timeline").replaceChildren();
+  window.scrollTo({ top: 0, behavior: "instant" });
+  await refreshPublicJobDetail(jobId);
 }
 
 function enhanceWorldMap() {
@@ -377,6 +388,37 @@ async function loadPublicSite() {
   renderPublicCapabilities();
   renderPublicExplorer();
   enhanceWorldMap();
+}
+
+async function refreshPublicJobs() {
+  if (publicRefreshInFlight) {
+    publicRefreshAgain = true;
+    return publicRefreshInFlight;
+  }
+  publicRefreshInFlight = (async () => {
+    const explorer = await publicApi("/api/explorer/jobs?limit=100");
+    publicJobs = explorer.jobs;
+    renderPublicExplorer();
+    if (currentPublicJobId) await refreshPublicJobDetail(currentPublicJobId);
+  })();
+  try {
+    await publicRefreshInFlight;
+  } finally {
+    publicRefreshInFlight = null;
+    if (publicRefreshAgain) {
+      publicRefreshAgain = false;
+      refreshPublicJobs().catch(() => {});
+    }
+  }
+}
+
+function startPublicJobUpdates() {
+  if (!publicEvents && "EventSource" in window) {
+    publicEvents = new EventSource("/api/explorer/events");
+    publicEvents.addEventListener("jobs", () => refreshPublicJobs().catch(() => {}));
+  }
+  clearInterval(publicJobsReconcilePoller);
+  publicJobsReconcilePoller = setInterval(() => refreshPublicJobs().catch(() => {}), PUBLIC_JOBS_RECONCILE_MS);
 }
 
 function routeFromPath() {
@@ -698,7 +740,7 @@ window.addEventListener("popstate", () => {
   if (detailMatch) openJobDetail(detailMatch[1], false); else { appShell.hidden = false; landingView.hidden = true; navigate(routeFromPath(), false); }
 });
 
-loadPublicSite().catch(() => {
+loadPublicSite().then(startPublicJobUpdates).catch(() => {
   const empty = document.createElement("div"); empty.className = "public-home-empty";
   setText(empty, "Public activity is temporarily unavailable.");
   $("#home-public-jobs").replaceChildren(empty);

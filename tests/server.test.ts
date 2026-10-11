@@ -316,6 +316,74 @@ describe("HTTP API", () => {
     expect(privateJob.statusCode).toBe(404);
   });
 
+  it("pushes public job state changes over the explorer event stream", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
+      workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
+    });
+    servers.push(server);
+    const address = await server.listen({ host: "127.0.0.1", port: 0 });
+    const abort = new AbortController();
+    const stream = await fetch(`${address}/api/explorer/events`, { signal: abort.signal });
+    expect(stream.status).toBe(200);
+    expect(stream.headers.get("content-type")).toContain("text/event-stream");
+    const reader = stream.body!.getReader();
+    const decoder = new TextDecoder();
+    expect(decoder.decode((await reader.read()).value)).toContain(": connected");
+
+    const privateJob = await server.inject({
+      method: "POST", url: "/api/jobs",
+      headers: { authorization: "Bearer user-secret", "idempotency-key": "live-private-job" },
+      payload: { prompt: "Generate a private image", isPublic: false }
+    });
+
+    const created = await server.inject({
+      method: "POST", url: "/api/jobs",
+      headers: { authorization: "Bearer user-secret", "idempotency-key": "live-public-job" },
+      payload: { prompt: "Write a public live update", isPublic: true }
+    });
+    const queuedEvent = decoder.decode((await reader.read()).value);
+    expect(queuedEvent).toContain("event: jobs");
+    expect(queuedEvent).toContain(`\"jobId\":\"${created.json().id}\"`);
+    expect(queuedEvent).not.toContain(privateJob.json().id);
+    expect(queuedEvent).toContain('\"state\":\"queued\"');
+
+    const claim = await server.inject({
+      method: "POST", url: "/api/worker/claim",
+      headers: { authorization: "Bearer worker-secret", "x-worker-id": "live-worker" },
+      payload: { capabilities: ["text.ollama"] }
+    });
+    const activeEvent = decoder.decode((await reader.read()).value);
+    expect(activeEvent).toContain('\"state\":\"active\"');
+
+    await server.inject({
+      method: "POST", url: `/api/worker/attempts/${claim.json().attempt.id}/complete`,
+      headers: { authorization: "Bearer worker-secret", "x-worker-id": "live-worker" },
+      payload: { leaseToken: claim.json().leaseToken, output: "Live result" }
+    });
+    const completedEvent = decoder.decode((await reader.read()).value);
+    expect(completedEvent).toContain('\"state\":\"succeeded\"');
+    abort.abort();
+  }, 10_000);
+
+  it("closes open explorer streams during graceful shutdown", async () => {
+    const server = await buildServer({
+      store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43),
+      workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
+    });
+    servers.push(server);
+    const address = await server.listen({ host: "127.0.0.1", port: 0 });
+    const stream = await fetch(`${address}/api/explorer/events`);
+    const reader = stream.body!.getReader();
+    await reader.read();
+    await expect(Promise.race([
+      server.close().then(() => "closed"),
+      new Promise((resolve) => setTimeout(() => resolve("timeout"), 1_000))
+    ])).resolves.toBe("closed");
+    expect((await reader.read()).done).toBe(true);
+    servers.splice(servers.indexOf(server), 1);
+  }, 5_000);
+
   it("accepts a published image artifact while keeping large data URLs out of explorer lists", async () => {
     const server = await buildServer({
       store: new MemoryJobStore(), userToken: "user-secret", adminToken: "admin-secret", openWorkerSigningKey: "s".repeat(43), workerToken: "worker-secret", legacyWorkerTokenEnabled: true, leaseSeconds: 60
