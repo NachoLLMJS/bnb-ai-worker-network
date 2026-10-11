@@ -57,6 +57,9 @@ export function buildWorkerExecutor(env: Env = process.env, dependencies: Depend
 
   for (const capability of capabilities) {
     const service = requireService(capability);
+    if (service.executor === "codex-image") {
+      throw new Error("Codex subscription images are executed only by the standalone external worker");
+    }
     if (service.executor === "openai") required(env, "OPENAI_API_KEY");
     if (service.executor === "anthropic") required(env, "ANTHROPIC_API_KEY");
     if (service.executor === "deepseek") required(env, "DEEPSEEK_API_KEY");
@@ -115,6 +118,8 @@ export function buildWorkerExecutor(env: Env = process.env, dependencies: Depend
           sourceEnv: env,
           runner: dependencies.codexRunner
         });
+      case "codex-image":
+        throw new Error("Codex subscription images are executed only by the standalone external worker");
       case "higgsfield": {
         const modelId = serviceId === "video.higgsfield.genjutsu"
           ? required(env, "HIGGSFIELD_GENJUTSU_MODEL_ID")

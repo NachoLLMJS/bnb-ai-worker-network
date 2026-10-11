@@ -79,6 +79,6 @@ describe("JobService", () => {
       serviceId: "text.anthropic.fable"
     });
 
-    expect(job).toMatchObject({ requirements: ["image"], serviceId: "image.openai.gpt-image-2" });
+    expect(job).toMatchObject({ requirements: ["image"], serviceId: "image.openai.codex" });
   });
 });

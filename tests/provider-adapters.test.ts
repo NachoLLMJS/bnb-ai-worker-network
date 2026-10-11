@@ -113,6 +113,14 @@ describe("worker provider registry", () => {
     expect(worker.capabilities).toEqual(["text.openai.codex"]);
   });
 
+  it("rejects subscription image execution in the bundled coordinator worker", () => {
+    expect(() => buildWorkerExecutor({
+      WORKER_CAPABILITIES: "image.openai.codex",
+      SUBSCRIPTION_CLI_ENABLED: "true",
+      CODEX_IMAGE_ENABLED: "true"
+    })).toThrow("standalone external worker");
+  });
+
   it("rejects the retired Claude Code subscription capability", () => {
     expect(() => buildWorkerExecutor({ WORKER_CAPABILITIES: "text.anthropic.claude-code" })).toThrow("unsupported service");
   });
